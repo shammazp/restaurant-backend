@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 
 const restaurantSchema = new mongoose.Schema({
+  biz_id: {
+    type: String,
+    required: [true, 'Business ID is required'],
+    trim: true,
+    unique: true,
+    maxlength: [50, 'Business ID cannot exceed 50 characters']
+  },
   name: {
     type: String,
     required: [true, 'Restaurant name is required'],
@@ -71,6 +78,27 @@ const restaurantSchema = new mongoose.Schema({
     max: [5, 'Rating cannot be more than 5'],
     default: 0
   },
+  logo: {
+    url: {
+      type: String,
+      trim: true
+    },
+    key: {
+      type: String,
+      trim: true
+    },
+    originalName: {
+      type: String,
+      trim: true
+    },
+    size: {
+      type: Number
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
   images: [{
     url: {
       type: String,
@@ -79,6 +107,32 @@ const restaurantSchema = new mongoose.Schema({
     alt: {
       type: String,
       default: 'Restaurant image'
+    }
+  }],
+  coverImages: [{
+    url: {
+      type: String,
+      required: true
+    },
+    key: {
+      type: String,
+      required: true
+    },
+    originalName: {
+      type: String,
+      required: true
+    },
+    size: {
+      type: Number,
+      required: true
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    },
+    alt: {
+      type: String,
+      default: 'Restaurant cover image'
     }
   }],
   operatingHours: {

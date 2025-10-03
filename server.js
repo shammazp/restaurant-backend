@@ -18,12 +18,26 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 const PORT = process.env.PORT || 80;
 
+// Serve static files from public directory
+app.use(express.static('public'));
+
+// Ensure admin.js is accessible
+app.get('/admin.js', (req, res) => {
+  res.sendFile(__dirname + '/public/admin.js');
+});
+
 // Connect to database
 connectDB();
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for development
+  crossOriginEmbedderPolicy: false
+}));
+app.use(cors({
+  origin: true, // Allow all origins in development
+  credentials: true
+}));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

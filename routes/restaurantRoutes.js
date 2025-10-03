@@ -2,6 +2,8 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Restaurant = require('../models/Restaurant');
 const User = require('../models/User');
+const { uploadSingle, uploadCombined, processAndUploadImage, processAndUploadCoverImages, handleUploadError } = require('../middleware/upload');
+const { deleteFromS3 } = require('../config/s3');
 
 const router = express.Router();
 
@@ -16,6 +18,13 @@ const validateRestaurant = [
   body('contact.phone').notEmpty().withMessage('Phone number is required'),
   body('contact.email').isEmail().withMessage('Valid email is required'),
   body('cuisine').isArray({ min: 1 }).withMessage('At least one cuisine type is required'),
+];
+
+// Simplified validation for basic restaurant creation
+const validateBasicRestaurant = [
+  body('name').notEmpty().withMessage('Restaurant name is required').trim(),
+  body('contact.phone').notEmpty().withMessage('Phone number is required'),
+  body('contact.email').isEmail().withMessage('Valid email is required'),
 ];
 
 // @route   GET /api/restaurants
@@ -63,6 +72,34 @@ router.get('/', async (req, res) => {
   }
 });
 
+// @route   GET /api/restaurants/biz/:biz_id
+// @desc    Get restaurant by business ID
+// @access  Public
+router.get('/biz/:biz_id', async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ biz_id: req.params.biz_id })
+      .populate('owner', 'name email phone');
+
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      data: { restaurant }
+    });
+  } catch (error) {
+    console.error('Error fetching restaurant by business ID:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch restaurant'
+    });
+  }
+});
+
 // @route   GET /api/restaurants/:id
 // @desc    Get restaurant by ID
 // @access  Public
@@ -94,7 +131,7 @@ router.get('/:id', async (req, res) => {
 // @route   POST /api/restaurants
 // @desc    Create new restaurant
 // @access  Private (Restaurant Owner)
-router.post('/', validateRestaurant, async (req, res) => {
+router.post('/', validateBasicRestaurant, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -105,12 +142,33 @@ router.post('/', validateRestaurant, async (req, res) => {
       });
     }
 
-    // For now, we'll use a placeholder owner ID
-    // In a real app, this would come from authentication middleware
-    const restaurantData = {
-      ...req.body,
-      owner: req.body.owner || '507f1f77bcf86cd799439011' // Placeholder ObjectId
+    // Parse restaurant data from FormData
+    let restaurantData;
+    if (req.body.data) {
+      // Data sent as FormData with JSON string
+      restaurantData = JSON.parse(req.body.data);
+    } else {
+      // Data sent as JSON
+      restaurantData = req.body;
+    }
+    
+    // Add logo data if present
+    if (req.body.logo) {
+      restaurantData.logo = req.body.logo;
+    }
+    
+    // Set default values for required fields
+    restaurantData.description = restaurantData.description || 'Restaurant description will be added later';
+    restaurantData.address = restaurantData.address || {
+      street: 'Address to be added',
+      city: 'City to be added',
+      state: 'State to be added',
+      zipCode: '00000',
+      country: 'USA'
     };
+    restaurantData.cuisine = restaurantData.cuisine || ['Other'];
+    restaurantData.features = restaurantData.features || ['Dine-in'];
+    restaurantData.owner = restaurantData.owner || '507f1f77bcf86cd799439011';
 
     const restaurant = new Restaurant(restaurantData);
     await restaurant.save();
@@ -138,20 +196,32 @@ router.post('/', validateRestaurant, async (req, res) => {
 // @route   PUT /api/restaurants/:id
 // @desc    Update restaurant
 // @access  Private (Restaurant Owner)
-router.put('/:id', validateRestaurant, async (req, res) => {
+router.put('/:id', uploadCombined, processAndUploadImage, processAndUploadCoverImages, handleUploadError, async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+
+    // Parse restaurant data from FormData
+    let restaurantData;
+    if (req.body.data) {
+      // Data sent as FormData with JSON string
+      restaurantData = JSON.parse(req.body.data);
+    } else {
+      // Data sent as JSON
+      restaurantData = req.body;
+    }
+    
+    // Add logo data if present
+    if (req.body.logo) {
+      restaurantData.logo = req.body.logo;
+    }
+    
+    // Add cover images data if present
+    if (req.body.coverImages) {
+      restaurantData.coverImages = req.body.coverImages;
     }
 
     const restaurant = await Restaurant.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      restaurantData,
       { new: true, runValidators: true }
     );
 
@@ -203,6 +273,203 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Failed to delete restaurant'
+    });
+  }
+});
+
+// @route   POST /api/restaurants/:id/logo
+// @desc    Upload restaurant logo
+// @access  Private (Restaurant Owner)
+router.post('/:id/logo', uploadSingle, processAndUploadImage, handleUploadError, async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findById(req.params.id);
+    
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    // Delete old logo from S3 if exists
+    if (restaurant.logo && restaurant.logo.key) {
+      await deleteFromS3(restaurant.logo.key);
+    }
+
+    // Update restaurant with new logo
+    restaurant.logo = req.body.logo;
+    await restaurant.save();
+
+    res.json({
+      status: 'success',
+      message: 'Logo uploaded successfully',
+      data: { logo: restaurant.logo }
+    });
+  } catch (error) {
+    console.error('Error uploading logo:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to upload logo'
+    });
+  }
+});
+
+// @route   POST /api/restaurants/biz/:biz_id/logo
+// @desc    Upload restaurant logo by business ID
+// @access  Private (Restaurant Owner)
+router.post('/biz/:biz_id/logo', uploadSingle, processAndUploadImage, handleUploadError, async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ biz_id: req.params.biz_id });
+    
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    // Delete old logo from S3 if exists
+    if (restaurant.logo && restaurant.logo.key) {
+      await deleteFromS3(restaurant.logo.key);
+    }
+
+    // Update restaurant with new logo
+    restaurant.logo = req.body.logo;
+    await restaurant.save();
+
+    res.json({
+      status: 'success',
+      message: 'Logo uploaded successfully',
+      data: { logo: restaurant.logo }
+    });
+  } catch (error) {
+    console.error('Error uploading logo:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to upload logo'
+    });
+  }
+});
+
+// @route   DELETE /api/restaurants/:id/logo
+// @desc    Delete restaurant logo
+// @access  Private (Restaurant Owner)
+router.delete('/:id/logo', async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findById(req.params.id);
+    
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    // Delete logo from S3 if exists
+    if (restaurant.logo && restaurant.logo.key) {
+      await deleteFromS3(restaurant.logo.key);
+    }
+
+    // Remove logo from restaurant
+    restaurant.logo = undefined;
+    await restaurant.save();
+
+    res.json({
+      status: 'success',
+      message: 'Logo deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting logo:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete logo'
+    });
+  }
+});
+
+// @route   DELETE /api/restaurants/biz/:biz_id/logo
+// @desc    Delete restaurant logo by business ID
+// @access  Private (Restaurant Owner)
+router.delete('/biz/:biz_id/logo', async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ biz_id: req.params.biz_id });
+    
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    // Delete logo from S3 if exists
+    if (restaurant.logo && restaurant.logo.key) {
+      await deleteFromS3(restaurant.logo.key);
+    }
+
+    // Remove logo from restaurant
+    restaurant.logo = undefined;
+    await restaurant.save();
+
+    res.json({
+      status: 'success',
+      message: 'Logo deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting logo:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete logo'
+    });
+  }
+});
+
+// @route   DELETE /api/restaurants/biz/:biz_id/cover-images/:imageKey
+// @desc    Delete specific cover image by business ID and image key
+// @access  Private (Restaurant Owner)
+router.delete('/biz/:biz_id/cover-images/:imageKey', async (req, res) => {
+  try {
+    const restaurant = await Restaurant.findOne({ biz_id: req.params.biz_id });
+    
+    if (!restaurant) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Restaurant not found'
+      });
+    }
+
+    const imageKey = req.params.imageKey;
+    const coverImage = restaurant.coverImages.find(img => img.key === imageKey);
+    
+    if (!coverImage) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Cover image not found'
+      });
+    }
+
+    // Delete from S3
+    const deleteResult = await deleteFromS3(imageKey);
+    
+    if (deleteResult.success) {
+      // Remove cover image from database
+      restaurant.coverImages = restaurant.coverImages.filter(img => img.key !== imageKey);
+      await restaurant.save();
+      
+      res.json({
+        status: 'success',
+        message: 'Cover image deleted successfully'
+      });
+    } else {
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to delete cover image from S3'
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting cover image:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete cover image'
     });
   }
 });

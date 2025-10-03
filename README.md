@@ -73,11 +73,15 @@ A comprehensive Node.js backend API for restaurant management with full CRUD ope
 #### Get Restaurant by ID
 - **GET** `/api/restaurants/:id`
 
+#### Get Restaurant by Business ID
+- **GET** `/api/restaurants/biz/:biz_id`
+
 #### Create Restaurant
 - **POST** `/api/restaurants`
 - **Body:**
   ```json
   {
+    "biz_id": "REST001",
     "name": "Restaurant Name",
     "description": "Restaurant description",
     "address": {
@@ -94,7 +98,13 @@ A comprehensive Node.js backend API for restaurant management with full CRUD ope
     },
     "cuisine": ["Italian", "American"],
     "operatingHours": {
-      "monday": {"open": "09:00", "close": "22:00", "closed": false}
+      "monday": {"open": "09:00", "close": "22:00", "closed": false},
+      "tuesday": {"open": "09:00", "close": "22:00", "closed": false},
+      "wednesday": {"open": "09:00", "close": "22:00", "closed": false},
+      "thursday": {"open": "09:00", "close": "22:00", "closed": false},
+      "friday": {"open": "09:00", "close": "22:00", "closed": false},
+      "saturday": {"open": "09:00", "close": "22:00", "closed": false},
+      "sunday": {"open": "09:00", "close": "22:00", "closed": false}
     },
     "features": ["Delivery", "Takeout", "Dine-in"]
   }
@@ -102,9 +112,11 @@ A comprehensive Node.js backend API for restaurant management with full CRUD ope
 
 #### Update Restaurant
 - **PUT** `/api/restaurants/:id`
+- **PUT** `/api/restaurants/biz/:biz_id`
 
 #### Delete Restaurant
 - **DELETE** `/api/restaurants/:id`
+- **DELETE** `/api/restaurants/biz/:biz_id`
 
 #### Get Restaurant Menu
 - **GET** `/api/restaurants/:id/menu`
@@ -252,6 +264,7 @@ A comprehensive Node.js backend API for restaurant management with full CRUD ope
 ## Data Models
 
 ### Restaurant
+- Business ID (biz_id) - Unique identifier for the restaurant
 - Basic information (name, description, address, contact)
 - Cuisine types and price range
 - Operating hours and features
