@@ -456,22 +456,22 @@ router.get('/', (req, res) => {
                 return;
             }
             
-            container.innerHTML = restaurants.map(restaurant => \`
-                <div class="restaurant-card">
-                    <h3>\${restaurant.name}</h3>
-                    <p><strong>Description:</strong> \${restaurant.description}</p>
-                    <p><strong>Address:</strong> \${restaurant.address.street}, \${restaurant.address.city}, \${restaurant.address.state} \${restaurant.address.zipCode}</p>
-                    <p><strong>Phone:</strong> \${restaurant.contact.phone}</p>
-                    <p><strong>Email:</strong> \${restaurant.contact.email}</p>
-                    <p><strong>Cuisine:</strong> \${restaurant.cuisine.join(', ')}</p>
-                    <p><strong>Features:</strong> \${restaurant.features ? restaurant.features.join(', ') : 'None'}</p>
-                    <p><strong>Rating:</strong> \${restaurant.rating}/5</p>
-                    <p><strong>Status:</strong> \${restaurant.isActive ? 'Active' : 'Inactive'}</p>
-                    <div class="restaurant-actions">
-                        <button class="btn btn-danger" onclick="deleteRestaurant('\${restaurant._id}')">Delete</button>
-                    </div>
-                </div>
-            \`).join('');
+            container.innerHTML = restaurants.map(restaurant => 
+                '<div class="restaurant-card">' +
+                    '<h3>' + restaurant.name + '</h3>' +
+                    '<p><strong>Description:</strong> ' + restaurant.description + '</p>' +
+                    '<p><strong>Address:</strong> ' + restaurant.address.street + ', ' + restaurant.address.city + ', ' + restaurant.address.state + ' ' + restaurant.address.zipCode + '</p>' +
+                    '<p><strong>Phone:</strong> ' + restaurant.contact.phone + '</p>' +
+                    '<p><strong>Email:</strong> ' + restaurant.contact.email + '</p>' +
+                    '<p><strong>Cuisine:</strong> ' + restaurant.cuisine.join(', ') + '</p>' +
+                    '<p><strong>Features:</strong> ' + (restaurant.features ? restaurant.features.join(', ') : 'None') + '</p>' +
+                    '<p><strong>Rating:</strong> ' + restaurant.rating + '/5</p>' +
+                    '<p><strong>Status:</strong> ' + (restaurant.isActive ? 'Active' : 'Inactive') + '</p>' +
+                    '<div class="restaurant-actions">' +
+                        '<button class="btn btn-danger" onclick="deleteRestaurant(\\'' + restaurant._id + '\\')">Delete</button>' +
+                    '</div>' +
+                '</div>'
+            ).join('');
         }
         
         // Delete restaurant
