@@ -2,6 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const connectDB = require('./config/database');
@@ -17,6 +20,7 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 80;
+const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 
 // Serve static files from public directory
 app.use(express.static('public'));
@@ -29,11 +33,10 @@ app.get('/admin.js', (req, res) => {
 // Connect to database
 connectDB();
 
-// Middleware
+// Production security middleware
 if (process.env.NODE_ENV === 'production') {
-  // Production security middleware
+  // Force HTTPS redirect
   app.use((req, res, next) => {
-    // Force HTTPS redirect in production
     if (req.header('x-forwarded-proto') !== 'https') {
       res.redirect(`https://${req.header('host')}${req.url}`);
     } else {
@@ -41,7 +44,7 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
 
-  // Enhanced security headers for production
+  // Enhanced security headers
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -74,15 +77,16 @@ if (process.env.NODE_ENV === 'production') {
 } else {
   // Development middleware
   app.use(helmet({
-    contentSecurityPolicy: false, // Disable CSP for development
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false
   }));
   
   app.use(cors({
-    origin: true, // Allow all origins in development
+    origin: true,
     credentials: true
   }));
 }
+
 app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -115,7 +119,26 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use(errorHandler);
 
+// Start HTTP server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`HTTP Server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });
+
+// Start HTTPS server if certificates are available
+if (process.env.NODE_ENV === 'production' && process.env.USE_HTTPS === 'true') {
+  try {
+    const options = {
+      key: fs.readFileSync(process.env.SSL_KEY_PATH || '/etc/ssl/private/server.key'),
+      cert: fs.readFileSync(process.env.SSL_CERT_PATH || '/etc/ssl/certs/server.crt')
+    };
+
+    https.createServer(options, app).listen(HTTPS_PORT, () => {
+      console.log(`HTTPS Server running on port ${HTTPS_PORT}`);
+      console.log(`Health check: https://localhost:${HTTPS_PORT}/api/health`);
+    });
+  } catch (error) {
+    console.warn('HTTPS server not started - SSL certificates not found');
+    console.warn('Consider using ALB or CloudFront for HTTPS in production');
+  }
+}
