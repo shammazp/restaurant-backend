@@ -29,6 +29,7 @@ const validateBasicRestaurant = [
   body('location.longitude').isNumeric().withMessage('Valid longitude is required'),
   body('contact.phone').notEmpty().withMessage('Phone number is required'),
   body('contact.email').isEmail().withMessage('Valid email is required'),
+  body('ranking').optional().isInt({ min: 1, max: 100 }).withMessage('Ranking must be between 1 and 100'),
 ];
 
 // @route   GET /api/restaurants
@@ -48,7 +49,7 @@ router.get('/', async (req, res) => {
 
     const restaurants = await Restaurant.find(query)
       .populate('owner', 'name email')
-      .sort({ rating: -1, createdAt: -1 })
+      .sort({ ranking: -1, rating: -1, createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
@@ -174,6 +175,7 @@ router.post('/', validateBasicRestaurant, async (req, res) => {
       latitude: 40.7128, // Default to New York City
       longitude: -74.0060
     };
+    restaurantData.ranking = restaurantData.ranking || 50; // Default ranking
     restaurantData.cuisine = restaurantData.cuisine || ['Other'];
     restaurantData.features = restaurantData.features || ['Dine-in'];
     restaurantData.owner = restaurantData.owner || '507f1f77bcf86cd799439011';

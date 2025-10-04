@@ -387,6 +387,8 @@ router.get('/dashboard', async (req, res) => {
                     <p><label>Phone: <input type="tel" name="phone" required></label></p>
                     <p><label>Email: <input type="email" name="email" required></label></p>
                     <p><label>Website: <input type="url" name="website"></label></p>
+                    <p><label>Rating (0-5): <input type="number" name="rating" min="0" max="5" step="0.1" placeholder="e.g., 4.5"></label></p>
+                    <p><label>Ranking (1-100): <input type="number" name="ranking" min="1" max="100" placeholder="e.g., 25"></label></p>
                     <p><label>Cuisine: <select name="cuisine" multiple>
                         <option value="Italian">Italian</option>
                         <option value="Chinese">Chinese</option>
@@ -632,6 +634,8 @@ router.get('/dashboard', async (req, res) => {
                             email: formData.get('email'),
                             website: formData.get('website')
                         },
+                        rating: parseFloat(formData.get('rating')) || 0,
+                        ranking: parseInt(formData.get('ranking')) || 50,
                         cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
                         features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value),
                         owner: '507f1f77bcf86cd799439011'
@@ -1278,6 +1282,17 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                         <input type="url" id="website" name="website" value="${restaurant.contact ? restaurant.contact.website || '' : ''}" placeholder="https://example.com">
                     </div>
                     
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="rating">Rating (0-5)</label>
+                            <input type="number" id="rating" name="rating" min="0" max="5" step="0.1" value="${restaurant.rating || 0}" placeholder="e.g., 4.5">
+                        </div>
+                        <div class="form-group">
+                            <label for="ranking">Ranking (1-100)</label>
+                            <input type="number" id="ranking" name="ranking" min="1" max="100" value="${restaurant.ranking || 50}" placeholder="e.g., 25">
+                        </div>
+                    </div>
+                    
                     <div class="form-group">
                         <label for="cuisine">Cuisine Type *</label>
                         <select id="cuisine" name="cuisine" multiple required>
@@ -1378,6 +1393,8 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     email: formData.get('email'),
                     website: formData.get('website') || undefined
                 },
+                rating: parseFloat(formData.get('rating')) || 0,
+                ranking: parseInt(formData.get('ranking')) || 50,
                 cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
                 features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value)
             };
@@ -1689,6 +1706,17 @@ router.get('/add-restaurant', (req, res) => {
                     </div>
                 </div>
                 
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="rating">Rating (0-5)</label>
+                        <input type="number" id="rating" name="rating" min="0" max="5" step="0.1" placeholder="e.g., 4.5">
+                    </div>
+                    <div class="form-group">
+                        <label for="ranking">Ranking (1-100)</label>
+                        <input type="number" id="ranking" name="ranking" min="1" max="100" placeholder="e.g., 25">
+                    </div>
+                </div>
+                
                 <button type="submit" class="btn">Create Restaurant</button>
             </form>
         </div>
@@ -1713,6 +1741,8 @@ router.get('/add-restaurant', (req, res) => {
                     phone: formData.get('phone'),
                     email: formData.get('email')
                 },
+                rating: parseFloat(formData.get('rating')) || 0,
+                ranking: parseInt(formData.get('ranking')) || 50,
                 owner: '507f1f77bcf86cd799439011' // Placeholder owner ID
             };
             
