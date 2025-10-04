@@ -517,12 +517,36 @@ router.get('/dashboard', async (req, res) => {
                 html += '<td>' + (restaurant.contact ? restaurant.contact.phone : 'N/A') + '</td>';
                 html += '<td>' + (restaurant.contact ? restaurant.contact.email : 'N/A') + '</td>';
                 html += '<td>' + (restaurant.isActive ? 'Active' : 'Inactive') + '</td>';
-                html += '<td><button onclick="editRestaurant(\'' + restaurant._id + '\')">Edit</button></td>';
+                html += '<td>';
+                html += '<button onclick="editRestaurant(\'' + restaurant._id + '\')" style="margin-right: 8px;">Edit</button>';
+                html += '<button onclick="deleteRestaurant(\'' + restaurant._id + '\', \'' + (restaurant.name || 'Unknown') + '\')" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Delete</button>';
+                html += '</td>';
                 html += '</tr>';
             });
             
             html += '</table>';
             container.innerHTML = html;
+        }
+
+        // Delete restaurant function
+        async function deleteRestaurant(restaurantId, restaurantName) {
+            if (confirm('Are you sure you want to delete "' + restaurantName + '"? This action cannot be undone.')) {
+                try {
+                    const response = await fetch('/api/restaurants/' + restaurantId, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        alert('Restaurant deleted successfully!');
+                        loadRestaurants(); // Reload the restaurant list
+                    } else {
+                        const result = await response.json();
+                        alert('Error deleting restaurant: ' + (result.message || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Error deleting restaurant: ' + error.message);
+                }
+            }
         }
 
         // Show message
@@ -910,12 +934,38 @@ router.get('/restaurants', async (req, res) => {
                             }
                         </td>
                         <td><span class="status ${restaurant.isActive ? 'active' : 'inactive'}">${restaurant.isActive ? 'Active' : 'Inactive'}</span></td>
-                        <td><a href="/admin/restaurants/${restaurant._id}/edit" class="btn">Edit</a></td>
+                        <td>
+                            <a href="/admin/restaurants/${restaurant._id}/edit" class="btn">Edit</a>
+                            <button onclick="deleteRestaurant('${restaurant._id}', '${restaurant.name}')" class="btn" style="background: #dc3545; margin-left: 8px;">Delete</button>
+                        </td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
     </div>
+
+    <script>
+        // Delete restaurant function
+        async function deleteRestaurant(restaurantId, restaurantName) {
+            if (confirm('Are you sure you want to delete "' + restaurantName + '"? This action cannot be undone.')) {
+                try {
+                    const response = await fetch('/api/restaurants/' + restaurantId, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        alert('Restaurant deleted successfully!');
+                        location.reload(); // Refresh the page to show updated list
+                    } else {
+                        const result = await response.json();
+                        alert('Error deleting restaurant: ' + (result.message || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Error deleting restaurant: ' + error.message);
+                }
+            }
+        }
+    </script>
 </body>
 </html>
     `);
