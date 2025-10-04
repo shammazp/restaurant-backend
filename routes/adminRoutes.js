@@ -382,6 +382,8 @@ router.get('/dashboard', async (req, res) => {
                     <p><label>City: <input type="text" name="city" required></label></p>
                     <p><label>State: <input type="text" name="state" required></label></p>
                     <p><label>ZIP Code: <input type="text" name="zipCode" required></label></p>
+                    <p><label>Latitude: <input type="number" name="latitude" step="any" required placeholder="e.g., 40.7128"></label></p>
+                    <p><label>Longitude: <input type="number" name="longitude" step="any" required placeholder="e.g., -74.0060"></label></p>
                     <p><label>Phone: <input type="tel" name="phone" required></label></p>
                     <p><label>Email: <input type="email" name="email" required></label></p>
                     <p><label>Website: <input type="url" name="website"></label></p>
@@ -620,6 +622,10 @@ router.get('/dashboard', async (req, res) => {
                             state: formData.get('state'),
                             zipCode: formData.get('zipCode'),
                             country: 'USA'
+                        },
+                        location: {
+                            latitude: parseFloat(formData.get('latitude')),
+                            longitude: parseFloat(formData.get('longitude'))
                         },
                         contact: {
                             phone: formData.get('phone'),
@@ -1247,6 +1253,17 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     
                     <div class="form-row">
                         <div class="form-group">
+                            <label for="latitude">Latitude *</label>
+                            <input type="number" id="latitude" name="latitude" step="any" value="${restaurant.location ? restaurant.location.latitude : ''}" required placeholder="e.g., 40.7128">
+                        </div>
+                        <div class="form-group">
+                            <label for="longitude">Longitude *</label>
+                            <input type="number" id="longitude" name="longitude" step="any" value="${restaurant.location ? restaurant.location.longitude : ''}" required placeholder="e.g., -74.0060">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
                             <label for="phone">Phone Number *</label>
                             <input type="tel" id="phone" name="phone" value="${restaurant.contact ? restaurant.contact.phone : ''}" required>
                         </div>
@@ -1351,6 +1368,10 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     state: formData.get('state'),
                     zipCode: formData.get('zipCode'),
                     country: 'USA'
+                },
+                location: {
+                    latitude: parseFloat(formData.get('latitude')),
+                    longitude: parseFloat(formData.get('longitude'))
                 },
                 contact: {
                     phone: formData.get('phone'),
@@ -1657,6 +1678,17 @@ router.get('/add-restaurant', (req, res) => {
                     </div>
                 </div>
                 
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="latitude">Latitude *</label>
+                        <input type="number" id="latitude" name="latitude" step="any" required placeholder="e.g., 40.7128">
+                    </div>
+                    <div class="form-group">
+                        <label for="longitude">Longitude *</label>
+                        <input type="number" id="longitude" name="longitude" step="any" required placeholder="e.g., -74.0060">
+                    </div>
+                </div>
+                
                 <button type="submit" class="btn">Create Restaurant</button>
             </form>
         </div>
@@ -1673,6 +1705,10 @@ router.get('/add-restaurant', (req, res) => {
             const restaurantData = {
                 biz_id: formData.get('biz_id'),
                 name: formData.get('name'),
+                location: {
+                    latitude: parseFloat(formData.get('latitude')),
+                    longitude: parseFloat(formData.get('longitude'))
+                },
                 contact: {
                     phone: formData.get('phone'),
                     email: formData.get('email')

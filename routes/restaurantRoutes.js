@@ -15,6 +15,8 @@ const validateRestaurant = [
   body('address.city').notEmpty().withMessage('City is required'),
   body('address.state').notEmpty().withMessage('State is required'),
   body('address.zipCode').notEmpty().withMessage('ZIP code is required'),
+  body('location.latitude').isNumeric().withMessage('Valid latitude is required'),
+  body('location.longitude').isNumeric().withMessage('Valid longitude is required'),
   body('contact.phone').notEmpty().withMessage('Phone number is required'),
   body('contact.email').isEmail().withMessage('Valid email is required'),
   body('cuisine').isArray({ min: 1 }).withMessage('At least one cuisine type is required'),
@@ -23,6 +25,8 @@ const validateRestaurant = [
 // Simplified validation for basic restaurant creation
 const validateBasicRestaurant = [
   body('name').notEmpty().withMessage('Restaurant name is required').trim(),
+  body('location.latitude').isNumeric().withMessage('Valid latitude is required'),
+  body('location.longitude').isNumeric().withMessage('Valid longitude is required'),
   body('contact.phone').notEmpty().withMessage('Phone number is required'),
   body('contact.email').isEmail().withMessage('Valid email is required'),
 ];
@@ -165,6 +169,10 @@ router.post('/', validateBasicRestaurant, async (req, res) => {
       state: 'State to be added',
       zipCode: '00000',
       country: 'USA'
+    };
+    restaurantData.location = restaurantData.location || {
+      latitude: 40.7128, // Default to New York City
+      longitude: -74.0060
     };
     restaurantData.cuisine = restaurantData.cuisine || ['Other'];
     restaurantData.features = restaurantData.features || ['Dine-in'];
