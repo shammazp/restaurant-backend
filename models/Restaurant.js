@@ -98,6 +98,12 @@ const restaurantSchema = new mongoose.Schema({
     max: [100, 'Ranking cannot exceed 100'],
     default: 50
   },
+  restaurantType: {
+    type: String,
+    required: [true, 'Restaurant type is required'],
+    enum: ['Restaurant', 'Cafe'],
+    default: 'Restaurant'
+  },
   logo: {
     url: {
       type: String,
@@ -187,5 +193,6 @@ restaurantSchema.index({ cuisine: 1 });
 restaurantSchema.index({ priceRange: 1 });
 restaurantSchema.index({ rating: -1 });
 restaurantSchema.index({ ranking: -1 });
+restaurantSchema.index({ restaurantType: 1 });
 
 module.exports = mongoose.model('Restaurant', restaurantSchema);

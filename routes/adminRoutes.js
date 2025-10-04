@@ -389,6 +389,10 @@ router.get('/dashboard', async (req, res) => {
                     <p><label>Website: <input type="url" name="website"></label></p>
                     <p><label>Rating (0-5): <input type="number" name="rating" min="0" max="5" step="0.1" placeholder="e.g., 4.5"></label></p>
                     <p><label>Ranking (1-100): <input type="number" name="ranking" min="1" max="100" placeholder="e.g., 25"></label></p>
+                    <p><label>Restaurant Type: <select name="restaurantType" required>
+                        <option value="Restaurant">Restaurant</option>
+                        <option value="Cafe">Cafe</option>
+                    </select></label></p>
                     <p><label>Cuisine: <select name="cuisine" multiple>
                         <option value="Italian">Italian</option>
                         <option value="Chinese">Chinese</option>
@@ -636,6 +640,7 @@ router.get('/dashboard', async (req, res) => {
                         },
                         rating: parseFloat(formData.get('rating')) || 0,
                         ranking: parseInt(formData.get('ranking')) || 50,
+                        restaurantType: formData.get('restaurantType'),
                         cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
                         features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value),
                         owner: '507f1f77bcf86cd799439011'
@@ -1294,6 +1299,14 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     </div>
                     
                     <div class="form-group">
+                        <label for="restaurantType">Restaurant Type *</label>
+                        <select id="restaurantType" name="restaurantType" required>
+                            <option value="Restaurant" ${restaurant.restaurantType === 'Restaurant' ? 'selected' : ''}>Restaurant</option>
+                            <option value="Cafe" ${restaurant.restaurantType === 'Cafe' ? 'selected' : ''}>Cafe</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
                         <label for="cuisine">Cuisine Type *</label>
                         <select id="cuisine" name="cuisine" multiple required>
                             <option value="Italian" ${restaurant.cuisine && restaurant.cuisine.includes('Italian') ? 'selected' : ''}>Italian</option>
@@ -1395,6 +1408,7 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                 },
                 rating: parseFloat(formData.get('rating')) || 0,
                 ranking: parseInt(formData.get('ranking')) || 50,
+                restaurantType: formData.get('restaurantType'),
                 cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
                 features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value)
             };
@@ -1717,6 +1731,14 @@ router.get('/add-restaurant', (req, res) => {
                     </div>
                 </div>
                 
+                <div class="form-group">
+                    <label for="restaurantType">Restaurant Type *</label>
+                    <select id="restaurantType" name="restaurantType" required>
+                        <option value="Restaurant">Restaurant</option>
+                        <option value="Cafe">Cafe</option>
+                    </select>
+                </div>
+                
                 <button type="submit" class="btn">Create Restaurant</button>
             </form>
         </div>
@@ -1743,6 +1765,7 @@ router.get('/add-restaurant', (req, res) => {
                 },
                 rating: parseFloat(formData.get('rating')) || 0,
                 ranking: parseInt(formData.get('ranking')) || 50,
+                restaurantType: formData.get('restaurantType'),
                 owner: '507f1f77bcf86cd799439011' // Placeholder owner ID
             };
             

@@ -30,6 +30,7 @@ const validateBasicRestaurant = [
   body('contact.phone').notEmpty().withMessage('Phone number is required'),
   body('contact.email').isEmail().withMessage('Valid email is required'),
   body('ranking').optional().isInt({ min: 1, max: 100 }).withMessage('Ranking must be between 1 and 100'),
+  body('restaurantType').optional().isIn(['Restaurant', 'Cafe']).withMessage('Restaurant type must be either Restaurant or Cafe'),
 ];
 
 // @route   GET /api/restaurants
@@ -176,6 +177,7 @@ router.post('/', validateBasicRestaurant, async (req, res) => {
       longitude: -74.0060
     };
     restaurantData.ranking = restaurantData.ranking || 50; // Default ranking
+    restaurantData.restaurantType = restaurantData.restaurantType || 'Restaurant'; // Default restaurant type
     restaurantData.cuisine = restaurantData.cuisine || ['Other'];
     restaurantData.features = restaurantData.features || ['Dine-in'];
     restaurantData.owner = restaurantData.owner || '507f1f77bcf86cd799439011';
