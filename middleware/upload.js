@@ -70,8 +70,8 @@ const processAndUploadImage = async (req, res, next) => {
       req.body.logo = {
         url: null,
         key: null,
-        originalName: req.file.originalname,
-        size: req.file.size,
+        originalName: logoFile.originalname,
+        size: logoFile.size,
         uploadedAt: new Date().toISOString(),
         note: 'S3 not configured - file not uploaded to cloud storage'
       };
@@ -112,7 +112,7 @@ const processAndUploadImage = async (req, res, next) => {
     req.body.logo = {
       url: cdnUrl,
       key: uploadResult.key,
-      originalName: req.file.originalname,
+      originalName: logoFile.originalname,
       size: processedImage.length,
       uploadedAt: new Date().toISOString()
     };
