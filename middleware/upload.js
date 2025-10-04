@@ -160,7 +160,7 @@ const processAndUploadCoverImages = async (req, res, next) => {
     // Handle both array uploads (req.files) and combined uploads (req.files.coverImages)
     const coverImageFiles = req.files && req.files.coverImages ? req.files.coverImages : req.files;
     
-    if (!coverImageFiles || coverImageFiles.length === 0) {
+    if (!coverImageFiles || !Array.isArray(coverImageFiles) || coverImageFiles.length === 0) {
       return next(); // No files uploaded, continue to next middleware
     }
 
@@ -201,6 +201,11 @@ const processAndUploadCoverImages = async (req, res, next) => {
     
     // Process each file
     for (const file of coverImageFiles) {
+      if (!file || !file.originalname) {
+        console.warn('Skipping invalid file:', file);
+        continue;
+      }
+      
       try {
         // Generate unique filename
         const fileName = generateFileName(file.originalname, biz_id);
