@@ -1340,6 +1340,40 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     </div>
                     
                     <div class="form-group">
+                        <label style="margin-bottom: 16px; font-size: 16px; font-weight: 600;">Operating Hours</label>
+                        <div style="display: grid; gap: 16px;">
+                            ${['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => {
+                                const dayData = restaurant.operatingHours && restaurant.operatingHours[day] ? restaurant.operatingHours[day] : { open: '', close: '', closed: false };
+                                const dayName = day.charAt(0).toUpperCase() + day.slice(1);
+                                return `
+                                    <div style="border: 1px solid #e5e5e7; border-radius: 8px; padding: 16px; background: #f8f9fa;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                            <label style="font-weight: 600; color: #1d1d1f; margin: 0; font-size: 14px;">${dayName}</label>
+                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
+                                                <input type="checkbox" id="closed_${day}" name="closed_${day}" ${dayData.closed ? 'checked' : ''} style="width: auto; cursor: pointer;">
+                                                <span style="font-size: 14px; color: #86868b;">Closed</span>
+                                            </label>
+                                        </div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;" class="hours-row-${day}">
+                                            <div>
+                                                <label for="open_${day}" style="font-size: 12px; color: #86868b; margin-bottom: 4px; display: block;">Opening Time</label>
+                                                <input type="time" id="open_${day}" name="open_${day}" value="${dayData.open || ''}" style="width: 100%; padding: 8px 12px; border: 1px solid #e5e5e7; border-radius: 6px; font-size: 14px;" ${dayData.closed ? 'disabled' : ''}>
+                                            </div>
+                                            <div>
+                                                <label for="close_${day}" style="font-size: 12px; color: #86868b; margin-bottom: 4px; display: block;">Closing Time</label>
+                                                <input type="time" id="close_${day}" name="close_${day}" value="${dayData.close || ''}" style="width: 100%; padding: 8px 12px; border: 1px solid #e5e5e7; border-radius: 6px; font-size: 14px;" ${dayData.closed ? 'disabled' : ''}>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <small style="color: #86868b; font-size: 12px; margin-top: 8px; display: block;">
+                            Set the opening and closing times for each day. Check "Closed" if the restaurant is closed on that day.
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
                         <label for="logo">Restaurant Logo</label>
                         <input type="file" id="logo" name="logo" accept="image/jpeg,image/jpg,image/png,image/webp">
                         <small style="color: #86868b; font-size: 12px; margin-top: 4px; display: block;">
@@ -1379,11 +1413,44 @@ router.get('/restaurants/:id/edit', async (req, res) => {
     </div>
 
     <script>
+        // Handle closed checkbox toggling for operating hours
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        days.forEach(day => {
+            const closedCheckbox = document.getElementById('closed_' + day);
+            const openInput = document.getElementById('open_' + day);
+            const closeInput = document.getElementById('close_' + day);
+            
+            if (closedCheckbox) {
+                closedCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        openInput.disabled = true;
+                        closeInput.disabled = true;
+                        openInput.value = '';
+                        closeInput.value = '';
+                    } else {
+                        openInput.disabled = false;
+                        closeInput.disabled = false;
+                    }
+                });
+            }
+        });
+        
         document.getElementById('editRestaurantForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
             const formData = new FormData(this);
             const messageDiv = document.getElementById('message');
+            
+            // Build operating hours object
+            const operatingHours = {};
+            days.forEach(day => {
+                const closed = formData.get('closed_' + day) === 'on';
+                operatingHours[day] = {
+                    open: closed ? '' : (formData.get('open_' + day) || ''),
+                    close: closed ? '' : (formData.get('close_' + day) || ''),
+                    closed: closed
+                };
+            });
             
             // Convert form data to the format expected by the API
             const restaurantData = {
@@ -1410,7 +1477,8 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                 ranking: parseInt(formData.get('ranking')) || 50,
                 restaurantType: formData.get('restaurantType'),
                 cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
-                features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value)
+                features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value),
+                operatingHours: operatingHours
             };
             
             try {
