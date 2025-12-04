@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Restaurant = require('../models/Restaurant');
+const ExplorePost = require('../models/ExplorePost');
 
 // Dashboard route
 router.get('/dashboard', async (req, res) => {
@@ -8,6 +9,95 @@ router.get('/dashboard', async (req, res) => {
     // Fetch basic stats
     const totalRestaurants = await Restaurant.countDocuments();
     const activeRestaurants = await Restaurant.countDocuments({ isActive: true });
+    const restaurants = await Restaurant.find({ isActive: true }).limit(50).sort({ createdAt: -1 });
+    const explorePosts = await ExplorePost.find({ isActive: true }).limit(20).sort({ createdAt: -1 }).lean();
+    
+    // Debug: Log explore posts media
+    console.log('=== DASHBOARD: Explore posts loaded ===');
+    console.log('Total posts:', explorePosts.length);
+    explorePosts.forEach((p, index) => {
+      console.log(`Post ${index + 1}:`, {
+        id: p._id,
+        title: p.title,
+        mediaCount: p.media?.length || 0,
+        media: p.media?.map(m => ({ url: m.url, type: m.type, key: m.key })) || []
+      });
+    });
+    
+    // Format explore posts for display
+    const explorePostsHTML = explorePosts.map(post => `
+      <tr>
+        <td><strong>${(post.title || 'N/A').replace(/'/g, "&#39;")}</strong></td>
+        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${(post.description || 'N/A').substring(0, 100)}${post.description && post.description.length > 100 ? '...' : ''}</td>
+        <td>
+          ${post.media && Array.isArray(post.media) && post.media.length > 0 
+            ? `<div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                ${post.media.slice(0, 3).map(media => {
+                  if (!media || !media.url) {
+                    console.warn('Invalid media item:', media);
+                    return '';
+                  }
+                  if (media.type === 'video') {
+                    return `<span style="font-size: 12px; color: #86868b;">🎥 Video</span>`;
+                  } else {
+                    const safeUrl = (media.url || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    return `<img src="${safeUrl}" alt="${(media.originalName || 'Media').replace(/"/g, '&quot;')}" style="width: 30px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e5e7;" onerror="console.error('Failed to load image:', this.src); this.style.display='none';" />`;
+                  }
+                }).filter(html => html !== '').join('')}
+                ${post.media.length > 3 ? `<span style="font-size: 12px; color: #86868b;">+${post.media.length - 3} more</span>` : ''}
+              </div>`
+            : '<span style="color: #86868b; font-size: 12px;">No media</span>'
+          }
+        </td>
+        <td>
+          <span style="font-size: 12px; padding: 4px 8px; background: #f5f5f7; border-radius: 4px;">
+            ${post.postType || 1}
+          </span>
+        </td>
+        <td>
+          <span style="font-size: 12px; padding: 4px 8px; background: #f5f5f7; border-radius: 4px;">
+            ${post.listPosition || 1}
+          </span>
+        </td>
+        <td>
+          <span style="font-size: 12px; padding: 4px 8px; background: #f5f5f7; border-radius: 4px;">
+            ${post.contactInfo && post.contactInfo.type === 'button' ? 'Button' : 'Contact'}
+          </span>
+        </td>
+        <td><span class="status ${post.isActive ? 'active' : 'inactive'}">${post.isActive ? 'Active' : 'Inactive'}</span></td>
+        <td>${post.views || 0}</td>
+        <td>
+          <button onclick="editExplorePost('${post._id}')" class="btn" style="background: #007aff; margin-right: 8px;">Edit</button>
+          <button onclick="deleteExplorePost('${post._id}', '${(post.title || 'Unknown').replace(/'/g, "\\'")}')" class="btn" style="background: #dc3545;">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+    
+    // Format restaurants for display
+    const restaurantsHTML = restaurants.map(restaurant => `
+      <tr>
+        <td>${restaurant.name || 'N/A'}</td>
+        <td>${restaurant.biz_id || 'N/A'}</td>
+        <td>${restaurant.contact ? restaurant.contact.phone : 'N/A'}</td>
+        <td>${restaurant.contact ? restaurant.contact.email : 'N/A'}</td>
+        <td>
+          ${restaurant.coverImages && restaurant.coverImages.length > 0 
+            ? `<div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                ${restaurant.coverImages.slice(0, 3).map(img => `
+                  <img src="${img.url}" alt="${img.alt || 'Cover'}" style="width: 30px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e5e7;">
+                `).join('')}
+                ${restaurant.coverImages.length > 3 ? `<span style="font-size: 12px; color: #86868b;">+${restaurant.coverImages.length - 3} more</span>` : ''}
+              </div>`
+            : '<span style="color: #86868b; font-size: 12px;">No images</span>'
+          }
+        </td>
+        <td><span class="status ${restaurant.isActive ? 'active' : 'inactive'}">${restaurant.isActive ? 'Active' : 'Inactive'}</span></td>
+        <td>
+          <a href="/admin/restaurants/${restaurant._id}/edit" class="btn" style="background: #007aff; margin-right: 8px;">Edit</a>
+          <button onclick="deleteRestaurant('${restaurant._id}', '${(restaurant.name || 'Unknown').replace(/'/g, "\\'")}')" class="btn" style="background: #dc3545;">Delete</button>
+        </td>
+      </tr>
+    `).join('');
     
   res.send(`
 <!DOCTYPE html>
@@ -15,7 +105,7 @@ router.get('/dashboard', async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restaurant Admin</title>
+    <title>Admin Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -298,532 +388,21 @@ router.get('/dashboard', async (req, res) => {
             background: #e8e8ed;
         }
         
-        .no-restaurants {
+        .empty-state {
             text-align: center;
             padding: 60px 20px;
             color: #86868b;
-            font-size: 16px;
         }
         
-        @media (max-width: 768px) {
-            .sidebar {
-                width: 100%;
-                position: relative;
-                height: auto;
-            }
-            
-            .main-content {
-                margin-left: 0;
-                padding: 20px;
-            }
-            
-            .form-row {
-                grid-template-columns: 1fr;
-            }
-            
-            .restaurants-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="sidebar">
-        <div class="sidebar-header">
-            <h1>Restaurant Admin</h1>
-        </div>
-        <nav class="sidebar-nav">
-            <a href="/admin/dashboard" class="nav-item active">🏠 Dashboard</a>
-            <a href="/admin/restaurants" class="nav-item">📋 View Restaurants</a>
-            <a href="/admin/add-restaurant" class="nav-item">➕ Add Restaurant</a>
-        </nav>
-    </div>
-    
-    <div class="main-content">
-        <!-- Home Page -->
-        <div id="home" class="page active">
-            <div class="welcome-section">
-                    <h1>Welcome to Restaurant Admin</h1>
-                    <p>Manage your restaurants with ease</p>
-            </div>
-            
-            <div class="stats-grid">
-                        <div class="stat-card">
-                    <h3>${totalRestaurants}</h3>
-                            <p>Total Restaurants</p>
-                        </div>
-                        <div class="stat-card">
-                    <h3>${activeRestaurants}</h3>
-                            <p>Active Restaurants</p>
-                </div>
-                </div>
-            </div>
-            
-            <!-- View Restaurants Page -->
-            <div id="restaurants" class="page">
-            <div class="welcome-section">
-                <h1>Restaurants</h1>
-                <p>View and manage your restaurant listings</p>
-            </div>
-                <div id="restaurantsList">
-                <div class="no-restaurants">Loading restaurants...</div>
-            </div>
-            </div>
-            
-            <!-- Add Restaurant Page -->
-            <div id="add-restaurant" class="page">
-                <h1>Add Restaurant</h1>
-                <div id="message"></div>
-                <form id="restaurantForm">
-                    <p><label>Business ID: <input type="text" name="biz_id" required></label></p>
-                    <p><label>Restaurant Name: <input type="text" name="name" required></label></p>
-                    <p><label>Description: <textarea name="description" required></textarea></label></p>
-                    <p><label>Street: <input type="text" name="street" required></label></p>
-                    <p><label>City: <input type="text" name="city" required></label></p>
-                    <p><label>State: <input type="text" name="state" required></label></p>
-                    <p><label>ZIP Code: <input type="text" name="zipCode" required></label></p>
-                    <p><label>Latitude: <input type="number" name="latitude" step="any" required placeholder="e.g., 40.7128"></label></p>
-                    <p><label>Longitude: <input type="number" name="longitude" step="any" required placeholder="e.g., -74.0060"></label></p>
-                    <p><label>Phone: <input type="tel" name="phone" required></label></p>
-                    <p><label>Email: <input type="email" name="email" required></label></p>
-                    <p><label>Website: <input type="url" name="website"></label></p>
-                    <p><label>Rating (0-5): <input type="number" name="rating" min="0" max="5" step="0.1" placeholder="e.g., 4.5"></label></p>
-                    <p><label>Ranking (1-100): <input type="number" name="ranking" min="1" max="100" placeholder="e.g., 25"></label></p>
-                    <p><label>Restaurant Type: <select name="restaurantType" required>
-                        <option value="Restaurant">Restaurant</option>
-                        <option value="Cafe">Cafe</option>
-                    </select></label></p>
-                    <p><label>Cuisine: <select name="cuisine" multiple>
-                        <option value="Italian">Italian</option>
-                        <option value="Chinese">Chinese</option>
-                        <option value="Mexican">Mexican</option>
-                        <option value="Indian">Indian</option>
-                        <option value="Thai">Thai</option>
-                        <option value="Japanese">Japanese</option>
-                        <option value="American">American</option>
-                        <option value="Mediterranean">Mediterranean</option>
-                        <option value="French">French</option>
-                        <option value="Other">Other</option>
-                    </select></label></p>
-                    <p><label>Features: <select name="features" multiple>
-                        <option value="Delivery">Delivery</option>
-                        <option value="Takeout">Takeout</option>
-                        <option value="Dine-in">Dine-in</option>
-                        <option value="Outdoor Seating">Outdoor Seating</option>
-                        <option value="Parking">Parking</option>
-                        <option value="WiFi">WiFi</option>
-                        <option value="Bar">Bar</option>
-                        <option value="Live Music">Live Music</option>
-                        <option value="Private Dining">Private Dining</option>
-                    </select></label></p>
-                    <p><label>Logo: <input type="file" name="logo" accept="image/*"></label></p>
-                    <button type="submit">Create Restaurant</button>
-                </form>
-            </div>
-    </div>
-
-        <script>
-        // Debug: Check if everything is loaded
-        console.log('Script loaded');
-        console.log('Document ready state:', document.readyState);
-        
-        // Navigation
-        function showPage(pageId) {
-            console.log('showPage called with:', pageId);
-            
-            // Hide all pages
-            const allPages = document.querySelectorAll('.page');
-            console.log('Found', allPages.length, 'pages');
-            allPages.forEach(page => {
-                page.classList.remove('active');
-                console.log('Removed active from page:', page.id);
-            });
-            
-            // Remove active class from all buttons
-            const allButtons = document.querySelectorAll('.nav-item');
-            console.log('Found', allButtons.length, 'nav buttons');
-            allButtons.forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            // Show selected page
-            const targetPage = document.getElementById(pageId);
-            if (targetPage) {
-                targetPage.classList.add('active');
-                console.log('Page activated:', pageId);
-            } else {
-                console.error('Page not found:', pageId);
-                console.log('Available pages:', Array.from(allPages).map(p => p.id));
-            }
-            
-            // Add active class to clicked button
-            const targetButton = document.querySelector('[data-page="' + pageId + '"]');
-            if (targetButton) {
-                targetButton.classList.add('active');
-                console.log('Button activated:', pageId);
-            } else {
-                console.error('Button not found for page:', pageId);
-            }
-            
-            // Load data for specific pages
-            if (pageId === 'restaurants') {
-                console.log('Loading restaurants...');
-                loadRestaurants();
-            }
-        }
-
-        // Load restaurants
-        async function loadRestaurants() {
-            const container = document.getElementById('restaurantsList');
-            container.innerHTML = '<div class="no-restaurants">Loading restaurants...</div>';
-            
-            try {
-                const apiUrl = window.location.protocol + '//' + window.location.host + '/api/restaurants';
-                console.log('Fetching restaurants from:', apiUrl);
-                
-                const response = await fetch(apiUrl);
-                console.log('Response status:', response.status);
-                console.log('Response ok:', response.ok);
-                
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                }
-                
-                const data = await response.json();
-                console.log('Response data:', data);
-                
-                if (data.status === 'success') {
-                    console.log('Restaurants found:', data.data.restaurants.length);
-                    displayRestaurants(data.data.restaurants);
-                } else {
-                    console.error('API returned error status:', data);
-                    container.innerHTML = '<div class="no-restaurants">API Error: ' + (data.message || 'Unknown error') + '</div>';
-                }
-            } catch (error) {
-                console.error('Error loading restaurants:', error);
-                container.innerHTML = '<div class="no-restaurants">Error loading restaurants: ' + error.message + '</div>';
-            }
-        }
-
-        // Display restaurants - Simple table format
-        function displayRestaurants(restaurants) {
-            console.log('Displaying restaurants:', restaurants);
-            const container = document.getElementById('restaurantsList');
-            
-            if (!restaurants || restaurants.length === 0) {
-                container.innerHTML = '<p>No restaurants found</p>';
-                return;
-            }
-            
-            let html = '<table border="1" style="width: 100%; border-collapse: collapse;">';
-            html += '<tr><th>Name</th><th>Business ID</th><th>Phone</th><th>Email</th><th>Status</th><th>Actions</th></tr>';
-            
-            restaurants.forEach(restaurant => {
-                html += '<tr>';
-                html += '<td>' + (restaurant.name || 'N/A') + '</td>';
-                html += '<td>' + (restaurant.biz_id || 'N/A') + '</td>';
-                html += '<td>' + (restaurant.contact ? restaurant.contact.phone : 'N/A') + '</td>';
-                html += '<td>' + (restaurant.contact ? restaurant.contact.email : 'N/A') + '</td>';
-                html += '<td>' + (restaurant.isActive ? 'Active' : 'Inactive') + '</td>';
-                html += '<td>';
-                html += '<button onclick="editRestaurant(\'' + restaurant._id + '\')" style="margin-right: 8px;">Edit</button>';
-                html += '<button onclick="deleteRestaurant(\'' + restaurant._id + '\', \'' + (restaurant.name || 'Unknown') + '\')" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Delete</button>';
-                html += '</td>';
-                html += '</tr>';
-            });
-            
-            html += '</table>';
-            container.innerHTML = html;
-        }
-
-        // Delete restaurant function
-        async function deleteRestaurant(restaurantId, restaurantName) {
-            if (confirm('Are you sure you want to delete "' + restaurantName + '"? This action cannot be undone.')) {
-                try {
-                    const response = await fetch('/api/restaurants/' + restaurantId, {
-                        method: 'DELETE'
-                    });
-                    
-                    if (response.ok) {
-                        alert('Restaurant deleted successfully!');
-                        loadRestaurants(); // Reload the restaurant list
-                    } else {
-                        const result = await response.json();
-                        alert('Error deleting restaurant: ' + (result.message || 'Unknown error'));
-                    }
-                } catch (error) {
-                    alert('Error deleting restaurant: ' + error.message);
-                }
-            }
-        }
-
-        // Show message
-        function showMessage(text, type) {
-            const messageDiv = document.getElementById('message');
-            messageDiv.className = 'message ' + type;
-            messageDiv.textContent = text;
-            messageDiv.style.padding = '12px 16px';
-            messageDiv.style.borderRadius = '8px';
-            messageDiv.style.marginBottom = '20px';
-            messageDiv.style.fontSize = '14px';
-            messageDiv.style.fontWeight = '500';
-            
-            if (type === 'success') {
-                messageDiv.style.background = '#d1f2eb';
-                messageDiv.style.color = '#00a86b';
-                messageDiv.style.border = '1px solid #a8e6cf';
-            } else {
-                messageDiv.style.background = '#f8d7da';
-                messageDiv.style.color = '#dc3545';
-                messageDiv.style.border = '1px solid #f5c6cb';
-            }
-            
-            setTimeout(() => {
-                messageDiv.textContent = '';
-                messageDiv.className = '';
-                messageDiv.style.cssText = '';
-            }, 5000);
-        }
-
-        // Handle form submission
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, setting up navigation...');
-            
-            // Add click listeners to navigation buttons
-            const navButtons = document.querySelectorAll('.nav-item');
-            console.log('Found', navButtons.length, 'navigation buttons');
-            
-            navButtons.forEach((btn, index) => {
-                console.log('Setting up button', index, ':', btn.textContent.trim());
-                btn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    console.log('Navigation button clicked:', this.textContent.trim());
-                    const pageId = this.getAttribute('data-page');
-                    console.log('Page ID:', pageId);
-                    if (pageId) {
-                        showPage(pageId);
-                    } else {
-                        console.error('No data-page attribute found on button');
-                    }
-                });
-            });
-            console.log('Navigation setup complete');
-            
-            // Form submission
-            const form = document.getElementById('restaurantForm');
-            if (form) {
-                form.addEventListener('submit', async function(e) {
-                    e.preventDefault();
-                    
-                    const formData = new FormData(this);
-                    
-                    // Create restaurant first
-                    const restaurantData = {
-                        biz_id: formData.get('biz_id'),
-                        name: formData.get('name'),
-                        description: formData.get('description'),
-                        address: {
-                            street: formData.get('street'),
-                            city: formData.get('city'),
-                            state: formData.get('state'),
-                            zipCode: formData.get('zipCode'),
-                            country: 'USA'
-                        },
-                        location: {
-                            latitude: parseFloat(formData.get('latitude')),
-                            longitude: parseFloat(formData.get('longitude'))
-                        },
-                        contact: {
-                            phone: formData.get('phone'),
-                            email: formData.get('email'),
-                            website: formData.get('website')
-                        },
-                        rating: parseFloat(formData.get('rating')) || 0,
-                        ranking: parseInt(formData.get('ranking')) || 50,
-                        restaurantType: formData.get('restaurantType'),
-                        cuisine: Array.from(document.getElementById('cuisine').selectedOptions).map(option => option.value),
-                        features: Array.from(document.getElementById('features').selectedOptions).map(option => option.value),
-                        owner: '507f1f77bcf86cd799439011'
-                    };
-                    
-                    try {
-                        // Create restaurant first
-                        const apiUrl = window.location.protocol + '//' + window.location.host + '/api/restaurants';
-                        console.log('Creating restaurant...');
-                        
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(restaurantData)
-                        });
-                        
-                        if (!response.ok) {
-                            const result = await response.json();
-                            throw new Error('Restaurant creation failed: ' + (result.message || 'Unknown error'));
-                        }
-                        
-                        const result = await response.json();
-                        console.log('Restaurant created:', result);
-                        
-                        // Now upload logo if provided
-                        const logoFile = formData.get('logo');
-                        if (logoFile && logoFile.size > 0) {
-                            console.log('Uploading logo...');
-                            const logoFormData = new FormData();
-                            logoFormData.append('logo', logoFile);
-                            logoFormData.append('biz_id', formData.get('biz_id'));
-                            
-                            const logoResponse = await fetch('/api/restaurants/biz/' + formData.get('biz_id') + '/logo', {
-                                method: 'POST',
-                                body: logoFormData
-                            });
-                            
-                            if (!logoResponse.ok) {
-                                const logoError = await logoResponse.json();
-                                console.warn('Logo upload failed:', logoError.message);
-                                // Don't throw error - restaurant was created successfully
-                            } else {
-                                console.log('Logo uploaded successfully');
-                            }
-                        }
-                        
-                        showMessage('Restaurant created successfully!', 'success');
-                        this.reset();
-                        
-                    } catch (error) {
-                        console.error('Error:', error);
-                        showMessage('Error: ' + error.message, 'error');
-                    }
-                });
-            }
-        });
-    </script>
-</body>
-</html>
-  `);
-  } catch (error) {
-    console.error('Error loading admin page:', error);
-    res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Error - Restaurant Admin</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 50px; text-align: center; }
-          .error { color: #dc3545; background: #f8d7da; padding: 20px; border-radius: 8px; }
-        </style>
-      </head>
-      <body>
-        <div class="error">
-          <h1>Error Loading Admin Page</h1>
-          <p>There was an error loading the admin page. Please try again later.</p>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-});
-
-// Restaurants list route
-router.get('/restaurants', async (req, res) => {
-  try {
-    const restaurants = await Restaurant.find().populate('owner', 'name email');
-    
-    res.send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restaurants - Restaurant Admin</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
         }
         
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: #ffffff;
-            color: #1d1d1f;
+        .action-buttons {
             display: flex;
-            min-height: 100vh;
-        }
-        
-        .sidebar {
-            width: 280px;
-            background: #f5f5f7;
-            border-right: 1px solid #e5e5e7;
-            padding: 0;
-            position: fixed;
-            height: 100vh;
-            overflow-y: auto;
-        }
-        
-        .sidebar-header {
-            padding: 24px 20px;
-            border-bottom: 1px solid #e5e5e7;
-        }
-        
-        .sidebar-header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #1d1d1f;
-        }
-        
-        .sidebar-nav {
-            padding: 20px 0;
-        }
-        
-        .nav-item {
-            display: block;
-            padding: 12px 20px;
-            color: #1d1d1f;
-            text-decoration: none;
-            font-size: 16px;
-            font-weight: 400;
-            transition: background-color 0.2s;
-            border: none;
-            background: none;
-            width: 100%;
-            text-align: left;
-            cursor: pointer;
-        }
-        
-        .nav-item:hover {
-            background: #e8e8ed;
-        }
-        
-        .nav-item.active {
-            background: #007aff;
-            color: white;
-        }
-        
-        .main-content {
-            flex: 1;
-            margin-left: 280px;
-            padding: 40px;
-            max-width: 1200px;
-        }
-        
-        .welcome-section {
-            margin-bottom: 40px;
-        }
-        
-        .welcome-section h1 {
-            font-size: 32px;
-            font-weight: 600;
-            color: #1d1d1f;
-            margin-bottom: 8px;
-        }
-        
-        .welcome-section p {
-            font-size: 18px;
-            color: #86868b;
-            font-weight: 400;
+            gap: 12px;
+            margin-bottom: 24px;
         }
         
         table {
@@ -851,41 +430,6 @@ router.get('/restaurants', async (req, res) => {
             background: #f8f9fa;
         }
         
-        .status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        
-        .status.active {
-            background: #d1f2eb;
-            color: #00a86b;
-        }
-        
-        .status.inactive {
-            background: #f8d7da;
-            color: #dc3545;
-        }
-        
-        .btn {
-            background: #007aff;
-            color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .btn:hover {
-            background: #0056b3;
-        }
-        
         @media (max-width: 768px) {
             .sidebar {
                 width: 100%;
@@ -897,69 +441,339 @@ router.get('/restaurants', async (req, res) => {
                 margin-left: 0;
                 padding: 20px;
             }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .restaurants-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="sidebar">
         <div class="sidebar-header">
-            <h1>Restaurant Admin</h1>
+            <h1>Admin Dashboard</h1>
         </div>
         <nav class="sidebar-nav">
-            <a href="/admin/dashboard" class="nav-item">🏠 Dashboard</a>
-            <a href="/admin/restaurants" class="nav-item active">📋 View Restaurants</a>
-            <a href="/admin/add-restaurant" class="nav-item">➕ Add Restaurant</a>
+            <button class="nav-item" data-tab="explore">🔍 Explore</button>
+            <button class="nav-item active" data-tab="eats">🍽️ Eats</button>
+            <button class="nav-item" data-tab="play">🎮 Play</button>
+            <button class="nav-item" data-tab="fitness">💪 Fitness</button>
+            <button class="nav-item" data-tab="transit">🚌 Transit</button>
+            <button class="nav-item" data-tab="notification">🔔 Notification</button>
+            <button class="nav-item" data-tab="updates">📢 Updates</button>
+            <button class="nav-item" data-tab="enquiries">📧 Enquiries</button>
         </nav>
     </div>
     
     <div class="main-content">
-        <div class="welcome-section">
-            <h1>Restaurants</h1>
-            <p>View and manage your restaurant listings</p>
+        <!-- Explore Tab -->
+        <div id="explore" class="page">
+            <div class="welcome-section">
+                <h1>Explore Posts</h1>
+                <p>Create and manage exploration update posts</p>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="btn" onclick="showCreateForm()">➕ Create New Post</button>
+                        </div>
+            
+            <!-- Create/Edit Form (hidden by default) -->
+            <div id="exploreFormContainer" style="display: none; margin-bottom: 40px;">
+                <div class="form-section">
+                    <h2 id="formTitle">Create Explore Post</h2>
+                    <div id="formMessage"></div>
+                    <form id="explorePostForm" enctype="multipart/form-data">
+                        <input type="hidden" id="postId" name="postId">
+                        
+                        <div class="form-group">
+                            <label for="title">Title *</label>
+                            <input type="text" id="title" name="title" required maxlength="200">
+                </div>
+                        
+                        <div class="form-group">
+                            <label for="description">Description *</label>
+                            <textarea id="description" name="description" rows="4" required maxlength="2000"></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="postType">Post Type *</label>
+                                <input type="number" id="postType" name="postType" min="1" required value="1" placeholder="1, 2, 3...">
+                                <small style="color: #86868b; display: block; margin-top: 4px;">Category type (integer)</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="listPosition">List Position *</label>
+                                <input type="number" id="listPosition" name="listPosition" min="1" required value="1" placeholder="1, 2, 3...">
+                                <small style="color: #86868b; display: block; margin-top: 4px;">Position in list (integer)</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="mediaFiles">Media Files (Images/Video) *</label>
+                            <input type="file" id="mediaFiles" name="coverImages" multiple accept="image/*,video/*">
+                            <small style="color: #86868b; display: block; margin-top: 4px;">You can upload multiple images or videos. They will be ordered by position (1, 2, 3...)</small>
+                            <div id="mediaPreview" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px;"></div>
+            </div>
+            
+                        <div class="form-group">
+                            <label for="contactType">Contact Method Type (Optional)</label>
+                            <select id="contactType" name="contactType" onchange="toggleContactFields()">
+                                <option value="">None (No contact info)</option>
+                                <option value="contact">Contact Information (Mobile, Email, Website, Location)</option>
+                                <option value="button">Button (Label, Icon, URL)</option>
+                            </select>
+            </div>
+                        
+                        <!-- Contact Information Fields -->
+                        <div id="contactFields" style="display: none;">
+                            <div class="form-group">
+                                <label for="mobile">Mobile Number</label>
+                                <input type="tel" id="mobile" name="mobile" placeholder="+1234567890">
+            </div>
+                            
+                            <div class="form-group">
+                                <label for="email">Email</label>
+                                <input type="email" id="email" name="email" placeholder="contact@example.com">
+            </div>
+            
+                            <div class="form-group">
+                                <label for="website">Website URL</label>
+                                <input type="url" id="website" name="website" placeholder="https://example.com">
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="latitude">Latitude</label>
+                                    <input type="number" id="latitude" name="latitude" step="any" placeholder="40.7128">
+                                </div>
+                                <div class="form-group">
+                                    <label for="longitude">Longitude</label>
+                                    <input type="number" id="longitude" name="longitude" step="any" placeholder="-74.0060">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Button Fields -->
+                        <div id="buttonFields" style="display: none;">
+                            <div class="form-group">
+                                <label for="buttonLabel">Button Label *</label>
+                                <input type="text" id="buttonLabel" name="buttonLabel" placeholder="Learn More">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="buttonIcon">Button Icon</label>
+                                <input type="text" id="buttonIcon" name="buttonIcon" placeholder="🔗 or icon name">
+                                <small style="color: #86868b; display: block; margin-top: 4px;">Enter an emoji or icon identifier</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="buttonUrl">Button URL *</label>
+                                <input type="url" id="buttonUrl" name="buttonUrl" placeholder="https://example.com">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px; margin-top: 24px;">
+                            <button type="submit" class="btn" id="submitBtn">Create Post</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideCreateForm()">Cancel</button>
+                        </div>
+                </form>
+            </div>
+    </div>
+
+            <!-- Posts List -->
+            <div id="explorePostsList">
+                ${explorePosts.length > 0 ? `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Media</th>
+                            <th>Post Type</th>
+                            <th>List Position</th>
+                            <th>Contact Type</th>
+                            <th>Status</th>
+                            <th>Views</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${explorePostsHTML}
+                    </tbody>
+                </table>
+                ` : `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🔍</div>
+                    <h3>No explore posts yet</h3>
+                    <p>Create your first explore post to get started</p>
+                    <button onclick="showCreateForm()" class="btn" style="margin-top: 16px;">Create Post</button>
+                </div>
+                `}
+            </div>
         </div>
         
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Business ID</th>
-                    <th>Phone</th>
-                    <th>Email</th>
-                    <th>Cover Images</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${restaurants.map(restaurant => `
+        <!-- Eats Tab (Restaurants) -->
+        <div id="eats" class="page active">
+            <div class="welcome-section">
+                <h1>Eats - Restaurants</h1>
+                <p>Manage your restaurant listings</p>
+            </div>
+            
+            <div class="action-buttons">
+                <a href="/admin/add-restaurant" class="btn">➕ Add Restaurant</a>
+            </div>
+            
+            <table>
+                <thead>
                     <tr>
-                        <td>${restaurant.name || 'N/A'}</td>
-                        <td>${restaurant.biz_id || 'N/A'}</td>
-                        <td>${restaurant.contact ? restaurant.contact.phone : 'N/A'}</td>
-                        <td>${restaurant.contact ? restaurant.contact.email : 'N/A'}</td>
-                        <td>
-                            ${restaurant.coverImages && restaurant.coverImages.length > 0 
-                                ? `<div style="display: flex; gap: 4px; flex-wrap: wrap;">
-                                    ${restaurant.coverImages.slice(0, 3).map(img => `
-                                        <img src="${img.url}" alt="${img.alt}" style="width: 30px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e5e7;">
-                                    `).join('')}
-                                    ${restaurant.coverImages.length > 3 ? `<span style="font-size: 12px; color: #86868b;">+${restaurant.coverImages.length - 3} more</span>` : ''}
-                                </div>`
-                                : '<span style="color: #86868b; font-size: 12px;">No images</span>'
-                            }
-                        </td>
-                        <td><span class="status ${restaurant.isActive ? 'active' : 'inactive'}">${restaurant.isActive ? 'Active' : 'Inactive'}</span></td>
-                        <td>
-                            <a href="/admin/restaurants/${restaurant._id}/edit" class="btn">Edit</a>
-                            <button onclick="deleteRestaurant('${restaurant._id}', '${restaurant.name}')" class="btn" style="background: #dc3545; margin-left: 8px;">Delete</button>
+                        <th>Name</th>
+                        <th>Business ID</th>
+                        <th>Phone</th>
+                        <th>Email</th>
+                        <th>Cover Images</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${restaurants.length > 0 ? restaurantsHTML : `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 40px;">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">🍽️</div>
+                                <h3>No restaurants found</h3>
+                                <p>Get started by adding your first restaurant</p>
+                                <a href="/admin/add-restaurant" class="btn" style="margin-top: 16px;">Add Restaurant</a>
+                            </div>
                         </td>
                     </tr>
-                `).join('')}
-            </tbody>
-        </table>
+                    `}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Play Tab -->
+        <div id="play" class="page">
+            <div class="welcome-section">
+                <h1>Play</h1>
+                <p>Manage entertainment and gaming features</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">🎮</div>
+                <h2>Play Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
+        
+        <!-- Fitness Tab -->
+        <div id="fitness" class="page">
+            <div class="welcome-section">
+                <h1>Fitness</h1>
+                <p>Manage fitness and wellness features</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">💪</div>
+                <h2>Fitness Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
+        
+        <!-- Transit Tab -->
+        <div id="transit" class="page">
+            <div class="welcome-section">
+                <h1>Transit</h1>
+                <p>Manage transportation and transit features</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">🚌</div>
+                <h2>Transit Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
+        
+        <!-- Notification Tab -->
+        <div id="notification" class="page">
+            <div class="welcome-section">
+                <h1>Notifications</h1>
+                <p>Manage system notifications</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">🔔</div>
+                <h2>Notification Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
+        
+        <!-- Updates Tab -->
+        <div id="updates" class="page">
+            <div class="welcome-section">
+                <h1>Updates</h1>
+                <p>Manage system updates and announcements</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">📢</div>
+                <h2>Updates Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
+        
+        <!-- Enquiries Tab -->
+        <div id="enquiries" class="page">
+            <div class="welcome-section">
+                <h1>Enquiries</h1>
+                <p>Manage customer enquiries and support requests</p>
+            </div>
+            <div class="empty-state">
+                <div class="empty-state-icon">📧</div>
+                <h2>Enquiries Section</h2>
+                <p>This section is coming soon</p>
+            </div>
+        </div>
     </div>
 
     <script>
+        // Tab navigation
+        function showTab(tabId) {
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // Remove active class from all nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Show selected page
+            const targetPage = document.getElementById(tabId);
+            if (targetPage) {
+                targetPage.classList.add('active');
+            }
+            
+            // Add active class to clicked nav item
+            const targetNav = document.querySelector('[data-tab="' + tabId + '"]');
+            if (targetNav) {
+                targetNav.classList.add('active');
+            }
+        }
+        
+        // Set up tab navigation
+        document.addEventListener('DOMContentLoaded', function() {
+            const navItems = document.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                item.addEventListener('click', function() {
+                    const tabId = this.getAttribute('data-tab');
+                    if (tabId) {
+                        showTab(tabId);
+                    }
+                });
+            });
+        });
+
         // Delete restaurant function
         async function deleteRestaurant(restaurantId, restaurantName) {
             if (confirm('Are you sure you want to delete "' + restaurantName + '"? This action cannot be undone.')) {
@@ -970,7 +784,7 @@ router.get('/restaurants', async (req, res) => {
                     
                     if (response.ok) {
                         alert('Restaurant deleted successfully!');
-                        location.reload(); // Refresh the page to show updated list
+                        location.reload(); // Reload the page to show updated list
                     } else {
                         const result = await response.json();
                         alert('Error deleting restaurant: ' + (result.message || 'Unknown error'));
@@ -980,13 +794,299 @@ router.get('/restaurants', async (req, res) => {
                 }
             }
         }
+
+        // Explore Posts Functions
+        function showCreateForm() {
+            document.getElementById('exploreFormContainer').style.display = 'block';
+            document.getElementById('formTitle').textContent = 'Create Explore Post';
+            document.getElementById('explorePostForm').reset();
+            document.getElementById('postId').value = '';
+            document.getElementById('mediaPreview').innerHTML = '';
+            toggleContactFields();
+            document.getElementById('exploreFormContainer').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function hideCreateForm() {
+            document.getElementById('exploreFormContainer').style.display = 'none';
+            document.getElementById('explorePostForm').reset();
+            document.getElementById('postId').value = '';
+            document.getElementById('mediaPreview').innerHTML = '';
+        }
+        
+        function toggleContactFields() {
+            const contactType = document.getElementById('contactType').value;
+            const contactFields = document.getElementById('contactFields');
+            const buttonFields = document.getElementById('buttonFields');
+            
+            if (contactType === 'contact') {
+                contactFields.style.display = 'block';
+                buttonFields.style.display = 'none';
+                // Make contact fields optional
+                document.getElementById('mobile').removeAttribute('required');
+                document.getElementById('email').removeAttribute('required');
+                document.getElementById('website').removeAttribute('required');
+                document.getElementById('buttonLabel').removeAttribute('required');
+                document.getElementById('buttonUrl').removeAttribute('required');
+            } else if (contactType === 'button') {
+                contactFields.style.display = 'none';
+                buttonFields.style.display = 'block';
+                document.getElementById('buttonLabel').setAttribute('required', 'required');
+                document.getElementById('buttonUrl').setAttribute('required', 'required');
+                document.getElementById('mobile').removeAttribute('required');
+                document.getElementById('email').removeAttribute('required');
+                document.getElementById('website').removeAttribute('required');
+                    } else {
+                contactFields.style.display = 'none';
+                buttonFields.style.display = 'none';
+            }
+        }
+        
+        // Preview media files
+        document.getElementById('mediaFiles')?.addEventListener('change', function(e) {
+            const preview = document.getElementById('mediaPreview');
+            preview.innerHTML = '';
+            
+            if (this.files && this.files.length > 0) {
+                Array.from(this.files).forEach((file, index) => {
+                    const div = document.createElement('div');
+                    div.style.position = 'relative';
+                    
+                    if (file.type.startsWith('image/')) {
+                        const img = document.createElement('img');
+                        img.src = URL.createObjectURL(file);
+                        img.style.width = '100%';
+                        img.style.height = '100px';
+                        img.style.objectFit = 'cover';
+                        img.style.borderRadius = '8px';
+                        div.appendChild(img);
+                    } else if (file.type.startsWith('video/')) {
+                        const video = document.createElement('video');
+                        video.src = URL.createObjectURL(file);
+                        video.style.width = '100%';
+                        video.style.height = '100px';
+                        video.style.objectFit = 'cover';
+                        video.style.borderRadius = '8px';
+                        video.controls = true;
+                        div.appendChild(video);
+                    }
+                    
+                    const label = document.createElement('div');
+                    label.textContent = \`Position: \${index + 1}\`;
+                    label.style.fontSize = '10px';
+                    label.style.color = '#86868b';
+                    label.style.marginTop = '4px';
+                    div.appendChild(label);
+                    
+                    preview.appendChild(div);
+                });
+            }
+        });
+        
+        // Handle form submission
+        document.getElementById('explorePostForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const postId = document.getElementById('postId').value;
+            const messageDiv = document.getElementById('formMessage');
+            const submitBtn = document.getElementById('submitBtn');
+            
+            // Build contact info object (optional)
+            const contactType = formData.get('contactType');
+            let contactInfo = null;
+            
+            if (contactType && contactType !== '') {
+                contactInfo = { type: contactType };
+                
+                if (contactType === 'contact') {
+                    if (formData.get('mobile')) contactInfo.mobile = formData.get('mobile');
+                    if (formData.get('email')) contactInfo.email = formData.get('email');
+                    if (formData.get('website')) contactInfo.website = formData.get('website');
+                    if (formData.get('latitude') || formData.get('longitude')) {
+                        contactInfo.location = {
+                            latitude: formData.get('latitude') ? parseFloat(formData.get('latitude')) : undefined,
+                            longitude: formData.get('longitude') ? parseFloat(formData.get('longitude')) : undefined
+                        };
+                    }
+                } else if (contactType === 'button') {
+                    contactInfo.buttonLabel = formData.get('buttonLabel');
+                    contactInfo.buttonIcon = formData.get('buttonIcon') || '';
+                    contactInfo.buttonUrl = formData.get('buttonUrl');
+                }
+            }
+            
+            // Create new FormData for API
+            const apiFormData = new FormData();
+            apiFormData.append('title', formData.get('title'));
+            apiFormData.append('description', formData.get('description'));
+            apiFormData.append('postType', formData.get('postType') || '1');
+            apiFormData.append('listPosition', formData.get('listPosition') || '1');
+            
+            // Only append contactInfo if it was provided
+            if (contactInfo) {
+                apiFormData.append('contactInfo', JSON.stringify(contactInfo));
+            }
+            
+            // Add media files
+            const mediaFiles = document.getElementById('mediaFiles').files;
+            if (mediaFiles && mediaFiles.length > 0) {
+                Array.from(mediaFiles).forEach(file => {
+                    apiFormData.append('coverImages', file);
+                });
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+            
+            try {
+                const url = postId ? \`/api/explore/\${postId}\` : '/api/explore';
+                const method = postId ? 'PUT' : 'POST';
+                
+                const response = await fetch(url, {
+                    method: method,
+                    body: apiFormData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.innerHTML = '<div style="padding: 12px; background: #d1f2eb; color: #00a86b; border-radius: 8px; margin-bottom: 16px;">Post ' + (postId ? 'updated' : 'created') + ' successfully!</div>';
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1500);
+                } else {
+                    let errorMessage = result.message || 'Unknown error';
+                    if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+                        errorMessage = result.errors.map(err => err.msg || err.message || err).join(', ');
+                    }
+                    messageDiv.innerHTML = '<div style="padding: 12px; background: #f8d7da; color: #dc3545; border-radius: 8px; margin-bottom: 16px;"><strong>Error:</strong> ' + errorMessage + '</div>';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = postId ? 'Update Post' : 'Create Post';
+                }
+            } catch (error) {
+                messageDiv.innerHTML = '<div style="padding: 12px; background: #f8d7da; color: #dc3545; border-radius: 8px; margin-bottom: 16px;">Error: ' + error.message + '</div>';
+                submitBtn.disabled = false;
+                submitBtn.textContent = postId ? 'Update Post' : 'Create Post';
+            }
+        });
+        
+        // Edit explore post
+        async function editExplorePost(postId) {
+            try {
+                const response = await fetch(\`/api/explore/\${postId}\`);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    const post = result.data.post;
+                    
+                    document.getElementById('postId').value = post._id;
+                    document.getElementById('title').value = post.title;
+                    document.getElementById('description').value = post.description;
+                    document.getElementById('postType').value = post.postType || 1;
+                    document.getElementById('listPosition').value = post.listPosition || 1;
+                    document.getElementById('contactType').value = post.contactInfo.type;
+                    
+                    if (post.contactInfo.type === 'contact') {
+                        document.getElementById('mobile').value = post.contactInfo.mobile || '';
+                        document.getElementById('email').value = post.contactInfo.email || '';
+                        document.getElementById('website').value = post.contactInfo.website || '';
+                        document.getElementById('latitude').value = post.contactInfo.location?.latitude || '';
+                        document.getElementById('longitude').value = post.contactInfo.location?.longitude || '';
+                    } else if (post.contactInfo.type === 'button') {
+                        document.getElementById('buttonLabel').value = post.contactInfo.buttonLabel || '';
+                        document.getElementById('buttonIcon').value = post.contactInfo.buttonIcon || '';
+                        document.getElementById('buttonUrl').value = post.contactInfo.buttonUrl || '';
+                    }
+                    
+                    // Show media preview
+                    const preview = document.getElementById('mediaPreview');
+                    preview.innerHTML = '';
+                    if (post.media && post.media.length > 0) {
+                        post.media.forEach((media, index) => {
+                            const div = document.createElement('div');
+                            if (media.type === 'image') {
+                                const img = document.createElement('img');
+                                img.src = media.url;
+                                img.style.width = '100%';
+                                img.style.height = '100px';
+                                img.style.objectFit = 'cover';
+                                img.style.borderRadius = '8px';
+                                div.appendChild(img);
+                            } else {
+                                const video = document.createElement('video');
+                                video.src = media.url;
+                                video.style.width = '100%';
+                                video.style.height = '100px';
+                                video.style.objectFit = 'cover';
+                                video.style.borderRadius = '8px';
+                                video.controls = true;
+                                div.appendChild(video);
+                            }
+                            const label = document.createElement('div');
+                            label.textContent = \`Position: \${media.position}\`;
+                            label.style.fontSize = '10px';
+                            label.style.color = '#86868b';
+                            label.style.marginTop = '4px';
+                            div.appendChild(label);
+                            preview.appendChild(div);
+                        });
+                    }
+                    
+                    toggleContactFields();
+                    document.getElementById('formTitle').textContent = 'Edit Explore Post';
+                    document.getElementById('submitBtn').textContent = 'Update Post';
+                    document.getElementById('exploreFormContainer').style.display = 'block';
+                    document.getElementById('exploreFormContainer').scrollIntoView({ behavior: 'smooth' });
+                }
+            } catch (error) {
+                alert('Error loading post: ' + error.message);
+            }
+        }
+        
+        // Delete explore post
+        async function deleteExplorePost(postId, postTitle) {
+            if (confirm('Are you sure you want to delete "' + postTitle + '"? This action cannot be undone.')) {
+                try {
+                    const response = await fetch(\`/api/explore/\${postId}\`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        alert('Post deleted successfully!');
+                        location.reload();
+                    } else {
+                        const result = await response.json();
+                        alert('Error deleting post: ' + (result.message || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Error deleting post: ' + error.message);
+                }
+            }
+        }
     </script>
 </body>
 </html>
     `);
   } catch (error) {
-    console.error('Error fetching restaurants:', error);
-    res.status(500).send('Error loading restaurants');
+    console.error('Error loading admin page:', error);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Error - Restaurant Admin</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 50px; text-align: center; }
+          .error { color: #dc3545; background: #f8d7da; padding: 20px; border-radius: 8px; }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>Error Loading Admin Page</h1>
+          <p>There was an error loading the admin page. Please try again later.</p>
+        </div>
+      </body>
+      </html>
+    `);
   }
 });
 
@@ -1209,7 +1309,7 @@ router.get('/restaurants/:id/edit', async (req, res) => {
             </div>
             <nav class="sidebar-nav">
                 <a href="/admin/dashboard" class="nav-item">🏠 Dashboard</a>
-                <a href="/admin/restaurants" class="nav-item">📋 View Restaurants</a>
+                <a href="/admin/dashboard" class="nav-item">🏠 Dashboard</a>
                 <a href="/admin/add-restaurant" class="nav-item">➕ Add Restaurant</a>
             </nav>
         </div>
@@ -1405,7 +1505,7 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                     
                     <div style="display: flex; gap: 12px;">
                         <button type="submit" class="btn">Update Restaurant</button>
-                        <a href="/admin/restaurants" class="btn btn-secondary">Cancel</a>
+                        <a href="/admin/dashboard" class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
             </div>
@@ -1512,7 +1612,7 @@ router.get('/restaurants/:id/edit', async (req, res) => {
                 console.log('Response data:', result);
                 
                 if (response.ok) {
-                    messageDiv.innerHTML = '<div class="message success">Restaurant updated successfully! <a href="/admin/restaurants">View Restaurants</a></div>';
+                    messageDiv.innerHTML = '<div class="message success">Restaurant updated successfully! <a href="/admin/dashboard">View Dashboard</a></div>';
                 } else {
                     console.error('API Error:', result);
                     let errorMessage = 'Failed to update restaurant';
@@ -1742,7 +1842,7 @@ router.get('/add-restaurant', (req, res) => {
         </div>
         <nav class="sidebar-nav">
             <a href="/admin/dashboard" class="nav-item">🏠 Dashboard</a>
-            <a href="/admin/restaurants" class="nav-item">📋 View Restaurants</a>
+            <a href="/admin/dashboard" class="nav-item">🏠 Dashboard</a>
             <a href="/admin/add-restaurant" class="nav-item active">➕ Add Restaurant</a>
         </nav>
     </div>
@@ -1853,7 +1953,7 @@ router.get('/add-restaurant', (req, res) => {
                 console.log('Response data:', result);
                 
                 if (response.ok) {
-                    messageDiv.innerHTML = '<div class="message success">Restaurant created successfully! <a href="/admin/restaurants">View Restaurants</a></div>';
+                    messageDiv.innerHTML = '<div class="message success">Restaurant created successfully! <a href="/admin/dashboard">View Dashboard</a></div>';
                     this.reset();
                 } else {
                     console.error('API Error:', result);

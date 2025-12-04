@@ -12,6 +12,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const publicUserRoutes = require('./routes/publicUserRoutes');
+const exploreRoutes = require('./routes/exploreRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -94,6 +95,7 @@ app.use('/admin', adminRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/public-users', publicUserRoutes);
+app.use('/api/explore', exploreRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

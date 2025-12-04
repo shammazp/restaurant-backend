@@ -83,7 +83,11 @@ const deleteFromS3 = async (key) => {
 
 // Generate CDN URL
 const getCdnUrl = (key) => {
-  return `${s3Config.cdnUrl}/${key}`;
+  // Remove leading slash from key if present
+  const cleanKey = key.startsWith('/') ? key.substring(1) : key;
+  // Remove trailing slash from CDN URL if present
+  const cleanCdnUrl = s3Config.cdnUrl.endsWith('/') ? s3Config.cdnUrl.slice(0, -1) : s3Config.cdnUrl;
+  return `${cleanCdnUrl}/${cleanKey}`;
 };
 
 module.exports = {

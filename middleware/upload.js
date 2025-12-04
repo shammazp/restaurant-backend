@@ -5,7 +5,7 @@ const { s3, s3Config, generateFileName, uploadToS3, getCdnUrl } = require('../co
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 
-// File filter function
+// File filter function for images only
 const fileFilter = (req, file, cb) => {
   if (s3Config.allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
@@ -14,7 +14,28 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer
+// File filter function for images and videos (for explore posts)
+const fileFilterMedia = (req, file, cb) => {
+  const allowedTypes = [
+    'image/jpeg', 
+    'image/jpg', 
+    'image/png', 
+    'image/webp',
+    'video/mp4',
+    'video/mpeg',
+    'video/quicktime',
+    'video/x-msvideo',
+    'video/webm'
+  ];
+  
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Invalid file type. Allowed types: ${allowedTypes.join(', ')}`), false);
+  }
+};
+
+// Configure multer for images only
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
@@ -23,11 +44,23 @@ const upload = multer({
   }
 });
 
+// Configure multer for images and videos (explore posts)
+const uploadMedia = multer({
+  storage: storage,
+  fileFilter: fileFilterMedia,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB for videos
+  }
+});
+
 // Single file upload middleware
 const uploadSingle = upload.single('logo');
 
 // Multiple files upload middleware for cover images
 const uploadMultiple = upload.array('coverImages', 4);
+
+// Multiple files upload middleware for explore media (images and videos)
+const uploadExploreMedia = uploadMedia.array('coverImages', 10);
 
 // Combined middleware for both single and multiple files
 const uploadCombined = upload.fields([
@@ -355,13 +388,138 @@ const processAndUploadProfileImage = async (req, res, next) => {
   }
 };
 
+// Process and upload media files for explore posts
+const processAndUploadExploreMedia = async (req, res, next) => {
+  try {
+    console.log('=== processAndUploadExploreMedia START ===');
+    console.log('req.files:', req.files ? (Array.isArray(req.files) ? `Array with ${req.files.length} items` : Object.keys(req.files)) : 'undefined');
+    
+    // When using upload.array(), files are stored directly in req.files as an array
+    // When using upload.fields(), files are stored in req.files.fieldName
+    const mediaFiles = req.files && Array.isArray(req.files) ? req.files : 
+                      (req.files && req.files.coverImages ? req.files.coverImages : []);
+    
+    console.log('mediaFiles:', mediaFiles ? (Array.isArray(mediaFiles) ? `Array with ${mediaFiles.length} items` : 'Not an array') : 'undefined');
+    
+    if (!mediaFiles || !Array.isArray(mediaFiles) || mediaFiles.length === 0) {
+      console.log('No media files found, setting empty array');
+      req.body.coverImages = []; // Set empty array if no files
+      return next(); // No files uploaded, continue to next middleware
+    }
+
+    // Check if S3 is configured
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.S3_BUCKET_NAME) {
+      console.warn('S3 not configured, storing file info without upload');
+      req.body.coverImages = mediaFiles.map(file => ({
+        url: null,
+        key: null,
+        type: file.mimetype.startsWith('video/') ? 'video' : 'image',
+        originalName: file.originalname,
+        size: file.size,
+        uploadedAt: new Date(),
+        note: 'S3 not configured - file not uploaded to cloud storage'
+      }));
+      return next();
+    }
+
+    const uploadedMedia = [];
+    const uploadPath = 'explore-posts/';
+    
+    // Process each file
+    for (const file of mediaFiles) {
+      if (!file || !file.originalname) {
+        console.warn('Skipping invalid file:', file);
+        continue;
+      }
+      
+      try {
+        const isVideo = file.mimetype.startsWith('video/');
+        const fileName = generateFileName(file.originalname, `explore_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`);
+        
+        let processedFile;
+        let contentType;
+        
+        if (isVideo) {
+          // For videos, upload as-is
+          processedFile = file.buffer;
+          contentType = file.mimetype;
+        } else {
+          // For images, process with Sharp
+          processedFile = await sharp(file.buffer)
+            .resize(1200, 1200, {
+              fit: 'inside',
+              withoutEnlargement: true
+            })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          contentType = 'image/jpeg';
+        }
+
+        // Upload to S3
+        const uploadParams = {
+          Bucket: s3Config.bucketName,
+          Key: `${uploadPath}${fileName}`,
+          Body: processedFile,
+          ContentType: contentType,
+          CacheControl: 'max-age=31536000',
+          // ACL removed - rely on bucket policy like restaurant images
+          Metadata: {
+            'uploaded-by': 'explore-posts-api',
+            'upload-date': new Date().toISOString()
+          }
+        };
+
+        const result = await s3.upload(uploadParams).promise();
+        
+        // Use the Location from S3 response, or construct CDN URL if CDN_URL is set
+        const imageUrl = process.env.CDN_URL ? getCdnUrl(result.Key) : result.Location;
+        
+        console.log('Uploaded media file:', {
+          key: result.Key,
+          url: imageUrl,
+          location: result.Location,
+          type: isVideo ? 'video' : 'image'
+        });
+        
+        uploadedMedia.push({
+          url: imageUrl,
+          key: result.Key,
+          type: isVideo ? 'video' : 'image',
+          originalName: file.originalname,
+          size: processedFile.length,
+          uploadedAt: new Date()
+        });
+      } catch (error) {
+        console.error('Error processing media file:', error);
+      }
+    }
+    
+    // Add media information to request body
+    req.body.coverImages = uploadedMedia;
+    console.log('=== processAndUploadExploreMedia END ===');
+    console.log('Uploaded media count:', uploadedMedia.length);
+    console.log('Media URLs:', uploadedMedia.map(m => m.url));
+
+    next();
+  } catch (error) {
+    console.error('Explore media processing error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to process media files',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   uploadSingle,
   uploadMultiple,
+  uploadExploreMedia,
   uploadCombined,
   uploadProfileImage,
   processAndUploadImage,
   processAndUploadCoverImages,
   processAndUploadProfileImage,
+  processAndUploadExploreMedia,
   handleUploadError
 };
