@@ -1,6 +1,6 @@
 const multer = require('multer');
 const sharp = require('sharp');
-const { s3Config, generateFileName, uploadToS3, getCdnUrl } = require('../config/s3');
+const { s3, s3Config, generateFileName, uploadToS3, getCdnUrl } = require('../config/s3');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -259,11 +259,109 @@ const processAndUploadCoverImages = async (req, res, next) => {
   }
 };
 
+// Single file upload middleware for profile images
+const uploadProfileImage = upload.single('profileImage');
+
+// Process and upload user profile image to S3
+const processAndUploadProfileImage = async (req, res, next) => {
+  try {
+    const profileImageFile = req.file;
+    
+    if (!profileImageFile) {
+      return next(); // No profile image file uploaded, continue to next middleware
+    }
+
+    // Get deviceId from either direct body or from data JSON string
+    let deviceId = req.body.deviceId;
+    if (!deviceId && req.body.data) {
+      try {
+        const dataObj = JSON.parse(req.body.data);
+        deviceId = dataObj.deviceId;
+      } catch (error) {
+        console.error('Error parsing data JSON:', error);
+      }
+    }
+    
+    if (!deviceId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Device ID is required for profile image upload'
+      });
+    }
+
+    // Check if S3 is configured
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.S3_BUCKET_NAME) {
+      console.warn('S3 not configured, storing file info without upload');
+      // Store basic file info without S3 upload
+      req.body.profileImage = {
+        url: null,
+        key: null,
+        originalName: profileImageFile.originalname,
+        size: profileImageFile.size,
+        uploadedAt: new Date().toISOString(),
+        note: 'S3 not configured - file not uploaded to cloud storage'
+      };
+      return next();
+    }
+
+    // Generate unique filename using deviceId
+    const fileName = generateFileName(profileImageFile.originalname, deviceId);
+    
+    // Process image with Sharp (circular crop for profile images)
+    const processedImage = await sharp(profileImageFile.buffer)
+      .resize(400, 400, {
+        fit: 'cover',
+        position: 'center'
+      })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    // Upload to S3 (use a different path for user profiles)
+    const uploadPath = 'user-profiles/';
+    const uploadParams = {
+      Bucket: s3Config.bucketName,
+      Key: `${uploadPath}${fileName}`,
+      Body: processedImage,
+      ContentType: 'image/jpeg',
+      CacheControl: 'max-age=31536000',
+      Metadata: {
+        'uploaded-by': 'public-user-api',
+        'upload-date': new Date().toISOString()
+      }
+    };
+
+    const result = await s3.upload(uploadParams).promise();
+
+    // Generate CDN URL
+    const cdnUrl = getCdnUrl(result.Key);
+    
+    // Add profile image information to request body
+    req.body.profileImage = {
+      url: cdnUrl,
+      key: result.Key,
+      originalName: profileImageFile.originalname,
+      size: processedImage.length,
+      uploadedAt: new Date().toISOString()
+    };
+
+    next();
+  } catch (error) {
+    console.error('Profile image processing error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to process profile image',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   uploadSingle,
   uploadMultiple,
   uploadCombined,
+  uploadProfileImage,
   processAndUploadImage,
   processAndUploadCoverImages,
+  processAndUploadProfileImage,
   handleUploadError
 };
