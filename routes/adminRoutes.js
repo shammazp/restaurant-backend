@@ -3,7 +3,7 @@ const router = express.Router();
 const Restaurant = require('../models/Restaurant');
 const ExplorePost = require('../models/ExplorePost');
 
-// Dashboard route
+// Dashboard route access
 router.get('/dashboard', async (req, res) => {
   try {
     // Fetch basic stats
