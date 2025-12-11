@@ -110,7 +110,10 @@ app.get('/api/health', (req, res) => {
     message: 'Restaurant API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    https: req.secure || req.header('x-forwarded-proto') === 'https'
+    isProduction: process.env.NODE_ENV === 'production',
+    https: req.secure || req.header('x-forwarded-proto') === 'https',
+    // Security: Only show admin status in development
+    adminAccessible: process.env.NODE_ENV !== 'production' ? 'Yes (development mode)' : 'No (production - localhost only)'
   });
 });
 

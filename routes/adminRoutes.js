@@ -4,8 +4,13 @@ const Restaurant = require('../models/Restaurant');
 const ExplorePost = require('../models/ExplorePost');
 const localhostOnly = require('../middleware/localhostOnly');
 
-// Apply localhost restriction to all admin routes
-// This ensures admin dashboard is only accessible when running locally
+// Apply localhost restriction to all admin routes (HTML pages only)
+// This ensures admin dashboard HTML pages are only accessible when running locally
+// NOTE: API endpoints (/api/*) are NOT affected by this middleware and remain publicly accessible
+// Only these HTML pages are blocked in production:
+// - /admin/dashboard
+// - /admin/restaurants/:id/edit
+// - /admin/add-restaurant
 router.use(localhostOnly);
 
 // Dashboard route access
