@@ -228,8 +228,7 @@ app.get('/linktree', async (req, res) => {
           
           .banner-image {
             width: 100%;
-            max-height: 400px;
-            object-fit: cover;
+            height: auto;
             display: block;
           }
           
@@ -258,6 +257,79 @@ app.get('/linktree', async (req, res) => {
             font-size: 48px;
             margin-bottom: 16px;
           }
+          
+          .buttons-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 32px;
+          }
+          
+          .link-button {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 20px 24px;
+            background: #ffffff;
+            border: 2px solid #e5e5e7;
+            border-radius: 12px;
+            text-decoration: none;
+            color: #1d1d1f;
+            transition: all 0.2s ease;
+            cursor: pointer;
+          }
+          
+          .link-button:hover {
+            border-color: #007aff;
+            background: #f5f5f7;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.15);
+          }
+          
+          .button-icon {
+            width: 48px;
+            height: 48px;
+            object-fit: cover;
+            border-radius: 8px;
+            flex-shrink: 0;
+          }
+          
+          .button-icon-placeholder {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f7;
+            border-radius: 8px;
+            font-size: 24px;
+            flex-shrink: 0;
+          }
+          
+          .button-label {
+            font-size: 18px;
+            font-weight: 500;
+            flex: 1;
+            text-align: left;
+          }
+          
+          .footer {
+            text-align: center;
+            padding: 40px 20px;
+            margin-top: 60px;
+          }
+          
+          .footer-link {
+            color: #000000;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 400;
+            transition: opacity 0.2s ease;
+          }
+          
+          .footer-link:hover {
+            opacity: 0.7;
+          }
         </style>
       </head>
       <body>
@@ -270,11 +342,37 @@ app.get('/linktree', async (req, res) => {
         <div class="content-container">
           <h1 class="account-name">${accountName}</h1>
           
-          <div class="empty-state">
-            <div class="empty-state-icon">🔗</div>
-            <h2>Link Tree</h2>
-            <p>Links and content will appear here</p>
-          </div>
+          ${(account.buttons && account.buttons.length > 0) ? (() => {
+            const sortedButtons = account.buttons.sort((a, b) => (a.order || 0) - (b.order || 0));
+            return sortedButtons.map(button => {
+              const iconUrl = button.icon && button.icon.url ? button.icon.url : '';
+              const hasIcon = iconUrl && iconUrl.trim() !== '' && (iconUrl.startsWith('http://') || iconUrl.startsWith('https://') || iconUrl.startsWith('data:'));
+              const buttonLabel = (button.label || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+              const buttonLink = (button.link || '#').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+              const safeIconUrl = hasIcon ? iconUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : '';
+              
+              return hasIcon 
+                ? `<a href="${buttonLink}" target="_blank" rel="noopener noreferrer" class="link-button">
+                    <img src="${safeIconUrl}" alt="${buttonLabel}" class="button-icon" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="button-icon-placeholder" style="display: none;">🔗</div>
+                    <span class="button-label">${buttonLabel}</span>
+                  </a>`
+                : `<a href="${buttonLink}" target="_blank" rel="noopener noreferrer" class="link-button">
+                    <div class="button-icon-placeholder">🔗</div>
+                    <span class="button-label">${buttonLabel}</span>
+                  </a>`;
+            }).join('');
+          })() : `
+            <div class="empty-state">
+              <div class="empty-state-icon">🔗</div>
+              <h2>Link Tree</h2>
+              <p>No buttons added yet. Add buttons from the admin panel.</p>
+            </div>
+          `}
+        </div>
+        
+        <div class="footer">
+          <a href="/" class="footer-link">powered by kochi.one</a>
         </div>
       </body>
       </html>

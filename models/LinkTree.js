@@ -55,7 +55,45 @@ const linkTreeSchema = new mongoose.Schema({
     sparse: true,
     trim: true,
     min: [1, 'LTN must be at least 1']
-  }
+  },
+  buttons: [{
+    icon: {
+      url: {
+        type: String,
+        trim: true
+      },
+      key: {
+        type: String,
+        trim: true
+      },
+      originalName: {
+        type: String,
+        trim: true
+      },
+      size: {
+        type: Number
+      },
+      uploadedAt: {
+        type: Date
+      }
+    },
+    label: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: [100, 'Button label cannot exceed 100 characters']
+    },
+    link: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: [500, 'Button link cannot exceed 500 characters']
+    },
+    order: {
+      type: Number,
+      default: 0
+    }
+  }]
 }, {
   timestamps: true
 });

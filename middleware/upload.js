@@ -514,7 +514,8 @@ const processAndUploadExploreMedia = async (req, res, next) => {
 // Process and upload banner image for LinkTree
 const processAndUploadBannerImage = async (req, res, next) => {
   try {
-    const bannerFile = req.file;
+    // Handle both single file (req.file) and fields (req.files.bannerImage)
+    const bannerFile = req.file || (req.files && req.files.bannerImage && req.files.bannerImage[0]);
     
     if (!bannerFile) {
       return next(); // No banner file uploaded, continue to next middleware
@@ -546,22 +547,76 @@ const processAndUploadBannerImage = async (req, res, next) => {
       // Generate unique filename
       const fileName = generateFileName(bannerFile.originalname, `linktree_${accountId}_${Date.now()}`);
       
-      // Process image with Sharp - resize to banner dimensions (1200x400 recommended for banners)
-      const processedImage = await sharp(bannerFile.buffer)
-        .resize(1200, 400, {
-          fit: 'cover',
-          withoutEnlargement: true
-        })
-        .jpeg({ quality: 90 })
-        .toBuffer();
+      // Process image with Sharp - maintain aspect ratio, only limit max width if needed
+      // Use 'inside' fit to preserve full image without cropping
+      let processedImage;
+      let contentType;
+      let fileExtension = 'jpg';
+      
+      // Check if it's an SVG file (Sharp doesn't support SVG)
+      if (bannerFile.mimetype === 'image/svg+xml') {
+        // For SVG, upload directly without processing
+        processedImage = bannerFile.buffer;
+        contentType = 'image/svg+xml';
+        fileExtension = 'svg';
+      } else {
+        try {
+          // Get image metadata to check dimensions
+          const metadata = await sharp(bannerFile.buffer).metadata();
+          
+          // Only resize if image is wider than 2400px (to prevent huge images)
+          // Use 'inside' fit to maintain aspect ratio without cropping
+          if (metadata.width > 2400) {
+            processedImage = await sharp(bannerFile.buffer)
+              .resize(2400, null, {
+                fit: 'inside',
+                withoutEnlargement: true
+              })
+              .jpeg({ quality: 90 })
+              .toBuffer();
+            contentType = 'image/jpeg';
+            fileExtension = 'jpg';
+          } else {
+            // Image is already reasonable size, just optimize quality if needed
+            // Preserve original format
+            if (bannerFile.mimetype === 'image/png') {
+              processedImage = await sharp(bannerFile.buffer)
+                .png({ quality: 90 })
+                .toBuffer();
+              contentType = 'image/png';
+              fileExtension = 'png';
+            } else if (bannerFile.mimetype === 'image/webp') {
+              processedImage = await sharp(bannerFile.buffer)
+                .webp({ quality: 90 })
+                .toBuffer();
+              contentType = 'image/webp';
+              fileExtension = 'webp';
+            } else {
+              // Default to JPEG
+              processedImage = await sharp(bannerFile.buffer)
+                .jpeg({ quality: 90 })
+                .toBuffer();
+              contentType = 'image/jpeg';
+              fileExtension = 'jpg';
+            }
+          }
+        } catch (sharpError) {
+          console.error('Sharp processing error, uploading original:', sharpError);
+          // If Sharp fails, upload original file
+          processedImage = bannerFile.buffer;
+          contentType = bannerFile.mimetype || 'image/jpeg';
+          fileExtension = bannerFile.originalname.split('.').pop() || 'jpg';
+        }
+      }
 
       // Upload to S3
       const uploadPath = 'linktree-banners/';
+      const finalFileName = fileName.replace(/\.[^/.]+$/, '') + '.' + fileExtension;
       const uploadParams = {
         Bucket: s3Config.bucketName,
-        Key: `${uploadPath}${fileName}`,
+        Key: `${uploadPath}${finalFileName}`,
         Body: processedImage,
-        ContentType: 'image/jpeg',
+        ContentType: contentType,
         CacheControl: 'max-age=31536000',
         Metadata: {
           'uploaded-by': 'linktree-api',
@@ -616,6 +671,142 @@ const processAndUploadBannerImage = async (req, res, next) => {
 // Single file upload middleware for banner images
 const uploadBannerImage = upload.single('bannerImage');
 
+// Combined upload middleware for banner and button icons
+const uploadBannerAndButtonIcons = upload.fields([
+  { name: 'bannerImage', maxCount: 1 },
+  { name: 'buttonIcons', maxCount: 20 } // Allow up to 20 button icons
+]);
+
+// Multiple file upload middleware for button icons only (for backward compatibility)
+const uploadButtonIcons = upload.fields([
+  { name: 'buttonIcons', maxCount: 20 } // Allow up to 20 button icons
+]);
+
+// Process and upload button icon to S3
+const processAndUploadButtonIcons = async (req, res, next) => {
+  try {
+    const buttonIconFiles = req.files && req.files.buttonIcons ? req.files.buttonIcons : [];
+    
+    if (!buttonIconFiles || buttonIconFiles.length === 0) {
+      return next(); // No button icons uploaded, continue
+    }
+
+    const accountId = req.params.id;
+    
+    if (!accountId) {
+      return next();
+    }
+
+    // Check if S3 is configured
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.S3_BUCKET_NAME) {
+      console.warn('S3 not configured, storing file info without upload');
+      req.body.buttonIcons = buttonIconFiles.map(file => ({
+        url: null,
+        key: null,
+        originalName: file.originalname,
+        size: file.size,
+        uploadedAt: new Date(),
+        note: 'S3 not configured - file not uploaded to cloud storage'
+      }));
+      return next();
+    }
+
+    try {
+      const processedIcons = [];
+      
+      for (const iconFile of buttonIconFiles) {
+        // Generate unique filename
+        const fileName = generateFileName(iconFile.originalname, `linktree_${accountId}_button_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+        
+        let processedImage;
+        let contentType;
+        let fileExtension = 'jpg';
+        
+        // Check if it's an SVG file (Sharp doesn't support SVG)
+        if (iconFile.mimetype === 'image/svg+xml') {
+          // For SVG, upload directly without processing
+          processedImage = iconFile.buffer;
+          contentType = 'image/svg+xml';
+          fileExtension = 'svg';
+        } else {
+          // Process image with Sharp - resize to icon dimensions (200x200 for buttons)
+          try {
+            processedImage = await sharp(iconFile.buffer)
+              .resize(200, 200, {
+                fit: 'cover',
+                withoutEnlargement: true
+              })
+              .jpeg({ quality: 90 })
+              .toBuffer();
+            contentType = 'image/jpeg';
+            fileExtension = 'jpg';
+          } catch (sharpError) {
+            console.error('Sharp processing error, uploading original:', sharpError);
+            // If Sharp fails, try to upload original file
+            processedImage = iconFile.buffer;
+            contentType = iconFile.mimetype || 'image/jpeg';
+            fileExtension = iconFile.originalname.split('.').pop() || 'jpg';
+          }
+        }
+
+        // Upload to S3
+        const uploadPath = 'linktree-buttons/';
+        const finalFileName = fileName.replace(/\.[^/.]+$/, '') + '.' + fileExtension;
+        const uploadParams = {
+          Bucket: s3Config.bucketName,
+          Key: `${uploadPath}${finalFileName}`,
+          Body: processedImage,
+          ContentType: contentType,
+          CacheControl: 'max-age=31536000',
+          Metadata: {
+            'uploaded-by': 'linktree-api',
+            'upload-date': new Date().toISOString()
+          }
+        };
+
+        const result = await s3.upload(uploadParams).promise();
+        
+        // Use the Location from S3 response, or construct CDN URL if CDN_URL is set
+        const imageUrl = process.env.CDN_URL ? getCdnUrl(result.Key) : result.Location;
+        
+        console.log('Button icon uploaded:', {
+          key: result.Key,
+          url: imageUrl,
+          location: result.Location,
+          cdnUrl: process.env.CDN_URL
+        });
+        
+        processedIcons.push({
+          url: imageUrl,
+          key: result.Key,
+          originalName: iconFile.originalname,
+          size: processedImage.length,
+          uploadedAt: new Date()
+        });
+      }
+      
+      // Store button icons info in req.body
+      req.body.buttonIcons = processedIcons;
+
+      next();
+    } catch (error) {
+      console.error('Button icon processing error:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to process button icons',
+        error: error.message
+      });
+    }
+  } catch (error) {
+    console.error('Button icon upload error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to upload button icons',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   uploadSingle,
   uploadMultiple,
@@ -623,10 +814,13 @@ module.exports = {
   uploadCombined,
   uploadProfileImage,
   uploadBannerImage,
+  uploadBannerAndButtonIcons,
+  uploadButtonIcons,
   processAndUploadImage,
   processAndUploadCoverImages,
   processAndUploadProfileImage,
   processAndUploadExploreMedia,
   processAndUploadBannerImage,
+  processAndUploadButtonIcons,
   handleUploadError
 };

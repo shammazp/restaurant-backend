@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const LinkTree = require('../../models/LinkTree');
-const { uploadBannerImage, processAndUploadBannerImage, handleUploadError } = require('../../middleware/upload');
+const { uploadBannerAndButtonIcons, processAndUploadBannerImage, processAndUploadButtonIcons, handleUploadError } = require('../../middleware/upload');
 const { deleteFromS3 } = require('../../config/s3');
 
 // Link Tree HTML page
@@ -357,7 +357,7 @@ router.get('/linktree/:id/edit', async (req, res) => {
                         <div id="currentBannerPreview" style="margin-top: 16px; ${hasBanner ? 'display: block;' : 'display: none;'}">
                             <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">Current Banner:</p>
                             <div style="position: relative; display: inline-block; border: 1px solid #e5e5e7; border-radius: 8px; overflow: hidden; max-width: 100%;">
-                                <img id="currentBannerImage" src="${hasBanner ? bannerUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : ''}" alt="Current banner" style="max-width: 100%; max-height: 300px; display: block;" crossorigin="anonymous" onerror="console.error('Failed to load banner image:', this.src); this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width=%27400%27 height=%27200%27%3E%3Crect fill=%27%23f5f5f7%27 width=%27400%27 height=%27200%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2386868b%27 font-family=%27system-ui%27 font-size=%2714%27%3EImage not available%3C/text%3E%3C/svg%3E';">
+                                <img id="currentBannerImage" src="${hasBanner ? bannerUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : ''}" alt="Current banner" style="max-width: 100%; height: auto; display: block;" crossorigin="anonymous" onerror="console.error('Failed to load banner image:', this.src); this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width=%27400%27 height=%27200%27%3E%3Crect fill=%27%23f5f5f7%27 width=%27400%27 height=%27200%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2386868b%27 font-family=%27system-ui%27 font-size=%2714%27%3EImage not available%3C/text%3E%3C/svg%3E';">
                             </div>
                             <button type="button" onclick="deleteBannerImage()" class="btn" style="background: #dc3545; margin-top: 8px; font-size: 14px; padding: 8px 16px;">🗑️ Delete Banner</button>
                         </div>
@@ -366,7 +366,7 @@ router.get('/linktree/:id/edit', async (req, res) => {
                         <div id="newBannerPreview" style="margin-top: 16px; display: none;">
                             <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">New Banner Preview:</p>
                             <div style="position: relative; display: inline-block; border: 1px solid #e5e5e7; border-radius: 8px; overflow: hidden; max-width: 100%;">
-                                <img id="newBannerImagePreview" src="" alt="New banner preview" style="max-width: 100%; max-height: 300px; display: block;">
+                                <img id="newBannerImagePreview" src="" alt="New banner preview" style="max-width: 100%; height: auto; display: block;">
                             </div>
                         </div>
                     </div>
@@ -378,6 +378,59 @@ router.get('/linktree/:id/edit', async (req, res) => {
                         </label>
                         <small style="color: #86868b; display: block; margin-top: 4px;">When checked, the banner image will be hidden from display</small>
                     </div>
+                </div>
+                
+                <!-- Buttons Section -->
+                <div id="buttonsSection" style="margin-top: 40px; padding-top: 40px; border-top: 1px solid #e5e5e7;">
+                    <h3 style="font-size: 20px; font-weight: 600; color: #1d1d1f; margin-bottom: 24px;">Link Buttons</h3>
+                    <p style="color: #86868b; margin-bottom: 24px; font-size: 14px;">Add buttons that will appear on your link tree page. Each button can have an icon, label, and link.</p>
+                    
+                    <div id="buttonsList">
+                        ${(account.buttons || []).map((button, index) => {
+                            const iconUrl = button.icon && button.icon.url ? button.icon.url : '';
+                            const hasIcon = iconUrl && iconUrl.trim() !== '' && (iconUrl.startsWith('http://') || iconUrl.startsWith('https://') || iconUrl.startsWith('data:'));
+                            return `
+                                <div class="button-item" data-index="${index}" style="background: #f5f5f7; border: 1px solid #e5e5e7; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                                        <h4 style="font-size: 16px; font-weight: 600; color: #1d1d1f;">Button ${index + 1}</h4>
+                                        <button type="button" onclick="removeButton(${index})" class="btn" style="background: #dc3545; font-size: 14px; padding: 6px 12px;">Remove</button>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label>Icon (PNG, SVG, JPG)</label>
+                                        <input type="file" class="button-icon-input" data-index="${index}" accept="image/png,image/svg+xml,image/jpeg,image/jpg" onchange="previewButtonIcon(${index}, this)">
+                                        <small style="color: #86868b; display: block; margin-top: 4px;">Upload an icon for this button</small>
+                                        
+                                        ${hasIcon ? `
+                                            <div style="margin-top: 12px;">
+                                                <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">Current Icon:</p>
+                                                <img src="${iconUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" alt="Button icon" class="button-icon-preview" data-index="${index}" style="max-width: 80px; max-height: 80px; border-radius: 8px; border: 1px solid #e5e5e7; padding: 4px;">
+                                            </div>
+                                        ` : ''}
+                                        
+                                        <div class="new-icon-preview" data-index="${index}" style="margin-top: 12px; display: none;">
+                                            <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">New Icon Preview:</p>
+                                            <img class="new-button-icon-preview" data-index="${index}" src="" alt="New icon preview" style="max-width: 80px; max-height: 80px; border-radius: 8px; border: 1px solid #e5e5e7; padding: 4px;">
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label>Label *</label>
+                                        <input type="text" class="button-label-input" data-index="${index}" required maxlength="100" value="${(button.label || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" placeholder="Enter button label">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label>Link *</label>
+                                        <input type="url" class="button-link-input" data-index="${index}" required maxlength="500" value="${(button.link || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" placeholder="https://example.com">
+                                    </div>
+                                    
+                                    <input type="hidden" class="button-order-input" data-index="${index}" value="${button.order || index}">
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    
+                    <button type="button" onclick="addButton()" class="btn" style="background: #00a86b; margin-top: 16px;">➕ Add Button</button>
                 </div>
                 
                 <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -435,6 +488,84 @@ router.get('/linktree/:id/edit', async (req, res) => {
             }
         }
         
+        // Button management functions
+        let buttonCounter = ${(account.buttons || []).length};
+        
+        function addButton() {
+            const buttonsList = document.getElementById('buttonsList');
+            const buttonIndex = buttonCounter++;
+            
+            const buttonHTML = \`
+                <div class="button-item" data-index="\${buttonIndex}" style="background: #f5f5f7; border: 1px solid #e5e5e7; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                        <h4 style="font-size: 16px; font-weight: 600; color: #1d1d1f;">Button \${buttonIndex + 1}</h4>
+                        <button type="button" onclick="removeButton(\${buttonIndex})" class="btn" style="background: #dc3545; font-size: 14px; padding: 6px 12px;">Remove</button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Icon (PNG, SVG, JPG)</label>
+                        <input type="file" class="button-icon-input" data-index="\${buttonIndex}" accept="image/png,image/svg+xml,image/jpeg,image/jpg" onchange="previewButtonIcon(\${buttonIndex}, this)">
+                        <small style="color: #86868b; display: block; margin-top: 4px;">Upload an icon for this button</small>
+                        
+                        <div class="new-icon-preview" data-index="\${buttonIndex}" style="margin-top: 12px; display: none;">
+                            <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">New Icon Preview:</p>
+                            <img class="new-button-icon-preview" data-index="\${buttonIndex}" src="" alt="New icon preview" style="max-width: 80px; max-height: 80px; border-radius: 8px; border: 1px solid #e5e5e7; padding: 4px;">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Label *</label>
+                        <input type="text" class="button-label-input" data-index="\${buttonIndex}" required maxlength="100" placeholder="Enter button label">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Link *</label>
+                        <input type="url" class="button-link-input" data-index="\${buttonIndex}" required maxlength="500" placeholder="https://example.com">
+                    </div>
+                    
+                    <input type="hidden" class="button-order-input" data-index="\${buttonIndex}" value="\${buttonIndex}">
+                </div>
+            \`;
+            
+            buttonsList.insertAdjacentHTML('beforeend', buttonHTML);
+            buttonsList.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+        
+        function removeButton(index) {
+            const buttonItem = document.querySelector(\`.button-item[data-index="\${index}"]\`);
+            if (buttonItem && confirm('Are you sure you want to remove this button?')) {
+                buttonItem.remove();
+                updateButtonNumbers();
+            }
+        }
+        
+        function updateButtonNumbers() {
+            const buttonItems = document.querySelectorAll('.button-item');
+            buttonItems.forEach((item, idx) => {
+                const h4 = item.querySelector('h4');
+                if (h4) {
+                    h4.textContent = \`Button \${idx + 1}\`;
+                }
+            });
+        }
+        
+        function previewButtonIcon(index, input) {
+            const file = input.files[0];
+            const previewDiv = document.querySelector(\`.new-icon-preview[data-index="\${index}"]\`);
+            const previewImg = document.querySelector(\`.new-button-icon-preview[data-index="\${index}"]\`);
+            
+            if (file && previewDiv && previewImg) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    previewDiv.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else if (previewDiv) {
+                previewDiv.style.display = 'none';
+            }
+        }
+        
         // Handle form submission
         document.getElementById('linkTreeForm')?.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -454,13 +585,52 @@ router.get('/linktree/:id/edit', async (req, res) => {
                 const url = '/admin/api/linktree/' + linkTreeId;
                 const method = 'PUT';
                 
-                // Use FormData if there's a file upload, otherwise use JSON
+                // Collect button data
+                const buttonItems = document.querySelectorAll('.button-item');
+                const buttons = [];
+                const buttonIconFiles = [];
+                
+                buttonItems.forEach((item, idx) => {
+                    const label = item.querySelector(\`.button-label-input[data-index="\${item.dataset.index}"]\`)?.value;
+                    const link = item.querySelector(\`.button-link-input[data-index="\${item.dataset.index}"]\`)?.value;
+                    const iconInput = item.querySelector(\`.button-icon-input[data-index="\${item.dataset.index}"]\`);
+                    const orderInput = item.querySelector(\`.button-order-input[data-index="\${item.dataset.index}"]\`);
+                    
+                    if (label && link) {
+                        const buttonData = {
+                            label: label.trim(),
+                            link: link.trim(),
+                            order: orderInput ? parseInt(orderInput.value) || idx : idx
+                        };
+                        
+                        // Check if there's a new icon file
+                        if (iconInput && iconInput.files && iconInput.files[0]) {
+                            buttonIconFiles.push({
+                                index: buttons.length,
+                                file: iconInput.files[0]
+                            });
+                        } else {
+                            // Keep existing icon if no new file
+                            const existingIcon = item.querySelector('.button-icon-preview');
+                            if (existingIcon && existingIcon.src) {
+                                // We'll need to preserve existing icons on the server side
+                                buttonData._preserveIcon = true;
+                                buttonData._iconIndex = item.dataset.index;
+                            }
+                        }
+                        
+                        buttons.push(buttonData);
+                    }
+                });
+                
+                // Use FormData if there's a file upload (banner or button icons), otherwise use JSON
                 let requestBody;
                 let headers = {};
                 
                 const ltnValue = document.getElementById('linkTreeLTN').value;
+                const hasFileUpload = bannerFile || buttonIconFiles.length > 0;
                 
-                if (bannerFile) {
+                if (hasFileUpload) {
                     // Use FormData for file uploads
                     const formData = new FormData();
                     formData.append('accountName', document.getElementById('accountName').value);
@@ -476,18 +646,36 @@ router.get('/linktree/:id/edit', async (req, res) => {
                         formData.append('LTN', ltnValue);
                     }
                     
-                    // Add banner file
-                    formData.append('bannerImage', bannerFile);
+                    // Add banner file if provided
+                    if (bannerFile) {
+                        formData.append('bannerImage', bannerFile);
+                    }
                     
                     // Add banner hide status
                     formData.append('isBannerHidden', isBannerHidden ? 'true' : 'false');
+                    
+                    // Add buttons data as JSON string
+                    formData.append('buttons', JSON.stringify(buttons));
+                    
+                    // Add button icon files with their indexes
+                    // Store indexes as JSON array to ensure proper handling
+                    const iconIndexes = [];
+                    buttonIconFiles.forEach(({ index, file }) => {
+                        formData.append('buttonIcons', file);
+                        iconIndexes.push(index);
+                    });
+                    // Send indexes as JSON string to avoid FormData array issues
+                    if (iconIndexes.length > 0) {
+                        formData.append('buttonIconIndexes', JSON.stringify(iconIndexes));
+                    }
                     
                     requestBody = formData;
                 } else {
                     // Use JSON for non-file updates
                     const formData = {
                         accountName: document.getElementById('accountName').value,
-                        email: document.getElementById('linkTreeEmail').value
+                        email: document.getElementById('linkTreeEmail').value,
+                        buttons: buttons
                     };
                     
                     // Only include password if it's provided
@@ -513,7 +701,17 @@ router.get('/linktree/:id/edit', async (req, res) => {
                     body: requestBody
                 });
                 
-                const result = await response.json();
+                let result;
+                try {
+                    result = await response.json();
+                } catch (jsonError) {
+                    const text = await response.text();
+                    console.error('Response text:', text);
+                    messageDiv.innerHTML = '<div class="message error"><strong>Error:</strong> Invalid response from server. Status: ' + response.status + '</div>';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Update Account';
+                    return;
+                }
                 
                 if (response.ok) {
                     messageDiv.innerHTML = '<div class="message success">Account updated successfully!</div>';
@@ -524,12 +722,16 @@ router.get('/linktree/:id/edit', async (req, res) => {
                     let errorMessage = result.message || 'Unknown error';
                     if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
                         errorMessage = result.errors.map(err => err.msg || err.message || err).join(', ');
+                    } else if (result.error) {
+                        errorMessage = result.error;
                     }
+                    console.error('Update error:', result);
                     messageDiv.innerHTML = '<div class="message error"><strong>Error:</strong> ' + errorMessage + '</div>';
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Update Account';
                 }
             } catch (error) {
+                console.error('Form submission error:', error);
                 messageDiv.innerHTML = '<div class="message error">Error: ' + error.message + '</div>';
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Update Account';
@@ -674,7 +876,7 @@ router.post('/api/linktree', async (req, res) => {
 });
 
 // Update link tree account
-router.put('/api/linktree/:id', uploadBannerImage, processAndUploadBannerImage, handleUploadError, async (req, res) => {
+router.put('/api/linktree/:id', uploadBannerAndButtonIcons, processAndUploadBannerImage, processAndUploadButtonIcons, handleUploadError, async (req, res) => {
   try {
     const account = await LinkTree.findById(req.params.id);
     
@@ -750,6 +952,130 @@ router.put('/api/linktree/:id', uploadBannerImage, processAndUploadBannerImage, 
     // Update banner hide status
     if (req.body.isBannerHidden !== undefined) {
       account.isBannerHidden = isBannerHidden;
+    }
+    
+    // Handle buttons
+    if (req.body.buttons) {
+      let buttonsData;
+      
+      // Parse buttons if it's a JSON string (from FormData)
+      if (typeof req.body.buttons === 'string') {
+        try {
+          buttonsData = JSON.parse(req.body.buttons);
+        } catch (e) {
+          console.error('Error parsing buttons JSON:', e);
+          return res.status(400).json({
+            status: 'error',
+            message: 'Invalid buttons data format',
+            error: e.message
+          });
+        }
+      } else {
+        buttonsData = req.body.buttons;
+      }
+      
+      // Validate buttons data
+      if (!Array.isArray(buttonsData)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Buttons must be an array'
+        });
+      }
+      
+      // Process button icons if uploaded
+      const buttonIcons = req.body.buttonIcons || [];
+      
+      // Handle buttonIconIndexes - can be JSON string or array
+      let buttonIconIndexes = [];
+      if (req.body.buttonIconIndexes) {
+        if (typeof req.body.buttonIconIndexes === 'string') {
+          try {
+            buttonIconIndexes = JSON.parse(req.body.buttonIconIndexes);
+          } catch (e) {
+            console.error('Error parsing buttonIconIndexes JSON:', e);
+            // Fallback: try to parse as single value or array
+            if (Array.isArray(req.body.buttonIconIndexes)) {
+              buttonIconIndexes = req.body.buttonIconIndexes;
+            } else {
+              buttonIconIndexes = [req.body.buttonIconIndexes];
+            }
+          }
+        } else if (Array.isArray(req.body.buttonIconIndexes)) {
+          buttonIconIndexes = req.body.buttonIconIndexes;
+        } else {
+          buttonIconIndexes = [req.body.buttonIconIndexes];
+        }
+      }
+      
+      console.log('Button icons received:', buttonIcons.length);
+      console.log('Button icon indexes received:', buttonIconIndexes);
+      console.log('Button icons data:', JSON.stringify(buttonIcons, null, 2));
+      
+      // Create a map of button index to icon
+      // The order of buttonIconIndexes should match the order of buttonIcons
+      const iconMap = {};
+      if (buttonIcons.length > 0 && buttonIconIndexes.length === buttonIcons.length) {
+        buttonIconIndexes.forEach((indexStr, iconIdx) => {
+          const buttonIndex = parseInt(indexStr);
+          if (!isNaN(buttonIndex) && buttonIcons[iconIdx]) {
+            iconMap[buttonIndex] = buttonIcons[iconIdx];
+          }
+        });
+      } else if (buttonIcons.length > 0) {
+        // If indexes don't match, assume sequential order (0, 1, 2, ...)
+        console.warn('Button icon indexes count does not match icons count, using sequential order');
+        buttonIcons.forEach((icon, idx) => {
+          iconMap[idx] = icon;
+        });
+      }
+      
+      // Delete old button icons from S3 that are being replaced
+      if (account.buttons && account.buttons.length > 0 && Object.keys(iconMap).length > 0) {
+        Object.keys(iconMap).forEach(buttonIdxStr => {
+          const buttonIdx = parseInt(buttonIdxStr);
+          if (!isNaN(buttonIdx) && account.buttons[buttonIdx] && account.buttons[buttonIdx].icon && account.buttons[buttonIdx].icon.key) {
+            // Delete old icon if new one is being uploaded
+            try {
+              deleteFromS3(account.buttons[buttonIdx].icon.key).catch(err => 
+                console.error('Error deleting old button icon:', err)
+              );
+            } catch (err) {
+              console.error('Error deleting old button icon:', err);
+            }
+          }
+        });
+      }
+      
+      // Map buttons with icons
+      const updatedButtons = buttonsData.map((button, idx) => {
+        const buttonData = {
+          label: button.label,
+          link: button.link,
+          order: button.order !== undefined ? button.order : idx
+        };
+        
+        // Check if there's a new icon for this button index
+        if (iconMap[idx]) {
+          // Use new uploaded icon
+          buttonData.icon = iconMap[idx];
+          console.log(`Button ${idx} - Using new icon:`, buttonData.icon.url);
+        } else if (button._preserveIcon && account.buttons && account.buttons[button._iconIndex]) {
+          // Preserve existing icon (from client-side flag)
+          buttonData.icon = account.buttons[button._iconIndex].icon;
+          console.log(`Button ${idx} - Preserving existing icon from index ${button._iconIndex}:`, buttonData.icon?.url);
+        } else if (account.buttons && account.buttons[idx] && account.buttons[idx].icon) {
+          // Keep existing icon if no new one provided
+          buttonData.icon = account.buttons[idx].icon;
+          console.log(`Button ${idx} - Keeping existing icon:`, buttonData.icon?.url);
+        } else {
+          console.log(`Button ${idx} - No icon assigned`);
+        }
+        
+        return buttonData;
+      });
+      
+      console.log('Updated buttons with icons:', JSON.stringify(updatedButtons.map(b => ({ label: b.label, iconUrl: b.icon?.url })), null, 2));
+      account.buttons = updatedButtons;
     }
     
     await account.save();
