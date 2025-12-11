@@ -2,19 +2,30 @@ const express = require('express');
 const router = express.Router();
 const Restaurant = require('../models/Restaurant');
 const ExplorePost = require('../models/ExplorePost');
-const localhostOnly = require('../middleware/localhostOnly');
 
-// Apply localhost restriction to all admin routes (HTML pages only)
-// This ensures admin dashboard HTML pages are only accessible when running locally
-// NOTE: API endpoints (/api/*) are NOT affected by this middleware and remain publicly accessible
-// Only these HTML pages are blocked in production:
-// - /admin/dashboard
-// - /admin/restaurants/:id/edit
-// - /admin/add-restaurant
-router.use(localhostOnly);
+// Middleware to restrict HTML pages to development/localhost only
+const restrictToLocalhost = (req, res, next) => {
+  // Allow in development or if accessed from localhost
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const isLocalhost = req.hostname === 'localhost' || 
+                      req.hostname === '127.0.0.1' || 
+                      req.ip === '127.0.0.1' || 
+                      req.ip === '::1' ||
+                      req.ip === '::ffff:127.0.0.1';
+  
+  if (isDevelopment || isLocalhost) {
+    next();
+  } else {
+    // In production, return 404 for HTML pages
+    res.status(404).json({
+      status: 'error',
+      message: 'Admin dashboard is not available in production. Use API endpoints instead.'
+    });
+  }
+};
 
 // Dashboard route access
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', restrictToLocalhost, async (req, res) => {
   try {
     // Fetch basic stats
     const totalRestaurants = await Restaurant.countDocuments();
@@ -1101,7 +1112,7 @@ router.get('/dashboard', async (req, res) => {
 });
 
 // Edit restaurant route
-router.get('/restaurants/:id/edit', async (req, res) => {
+router.get('/restaurants/:id/edit', restrictToLocalhost, async (req, res) => {
   try {
     const restaurant = await Restaurant.findById(req.params.id);
     if (!restaurant) {
@@ -1649,7 +1660,7 @@ router.get('/restaurants/:id/edit', async (req, res) => {
 });
 
 // Add restaurant route
-router.get('/add-restaurant', (req, res) => {
+router.get('/add-restaurant', restrictToLocalhost, (req, res) => {
   res.send(`
 <!DOCTYPE html>
 <html lang="en">
@@ -1987,7 +1998,7 @@ router.get('/add-restaurant', (req, res) => {
 });
 
 // Redirect root admin to dashboard
-router.get('/', (req, res) => {
+router.get('/', restrictToLocalhost, (req, res) => {
   res.redirect('/admin/dashboard');
 });
 

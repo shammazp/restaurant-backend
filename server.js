@@ -20,18 +20,27 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 const PORT = process.env.PORT || 80;
 
-// Trust proxy - needed when behind load balancer/proxy (AWS ALB, CloudFront, etc.)
-// This allows Express to correctly identify the client IP
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', true);
-}
-
 // Serve static files from public directory
 app.use(express.static('public'));
 
-// Ensure admin.js is accessible
+// Ensure admin.js is accessible (only in development/localhost)
 app.get('/admin.js', (req, res) => {
-  res.sendFile(__dirname + '/public/admin.js');
+  // Restrict to development or localhost only
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const isLocalhost = req.hostname === 'localhost' || 
+                      req.hostname === '127.0.0.1' || 
+                      req.ip === '127.0.0.1' || 
+                      req.ip === '::1' ||
+                      req.ip === '::ffff:127.0.0.1';
+  
+  if (isDevelopment || isLocalhost) {
+    res.sendFile(__dirname + '/public/admin.js');
+  } else {
+    res.status(404).json({
+      status: 'error',
+      message: 'Admin resources are not available in production.'
+    });
+  }
 });
 
 // Connect to database
@@ -96,16 +105,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-// API routes - publicly accessible (not restricted by localhostOnly middleware)
 app.use('/api/restaurants', restaurantRoutes);
+app.use('/admin', adminRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/public-users', publicUserRoutes);
 app.use('/api/explore', exploreRoutes);
-
-// Admin routes - HTML dashboard pages only (restricted to localhost in production)
-// These routes have localhostOnly middleware applied in adminRoutes.js
-app.use('/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -114,10 +119,7 @@ app.get('/api/health', (req, res) => {
     message: 'Restaurant API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    isProduction: process.env.NODE_ENV === 'production',
-    https: req.secure || req.header('x-forwarded-proto') === 'https',
-    // Security: Only show admin status in development
-    adminAccessible: process.env.NODE_ENV !== 'production' ? 'Yes (development mode)' : 'No (production - localhost only)'
+    https: req.secure || req.header('x-forwarded-proto') === 'https'
   });
 });
 
