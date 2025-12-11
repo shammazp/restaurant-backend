@@ -1,0 +1,877 @@
+const express = require('express');
+const router = express.Router();
+const LinkTree = require('../../models/LinkTree');
+const { uploadBannerImage, processAndUploadBannerImage, handleUploadError } = require('../../middleware/upload');
+const { deleteFromS3 } = require('../../config/s3');
+
+// Link Tree HTML page
+router.get('/linktree', async (req, res) => {
+  try {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    
+    const accounts = await LinkTree.find().sort({ createdAt: -1 });
+    
+    const accountsHTML = accounts.map(account => {
+      const hasBanner = account.bannerImage && account.bannerImage.url;
+      const bannerStatus = hasBanner 
+        ? (account.isBannerHidden ? '<span style="color: #86868b; font-size: 12px;">🔗 Hidden</span>' : '<span style="color: #00a86b; font-size: 12px;">🔗 Visible</span>')
+        : '<span style="color: #86868b; font-size: 12px;">No banner</span>';
+      const ltnDisplay = account.LTN 
+        ? `<span style="font-weight: 500; color: #007aff;">${account.LTN}</span>`
+        : '<span style="color: #86868b; font-size: 12px;">Not set</span>';
+      
+      return `
+        <tr>
+          <td><strong>${(account.accountName || 'N/A').replace(/'/g, "&#39;")}</strong></td>
+          <td>${(account.email || 'N/A').replace(/'/g, "&#39;")}</td>
+          <td>${ltnDisplay}</td>
+          <td>${bannerStatus}</td>
+          <td><span class="status ${account.isActive ? 'active' : 'inactive'}">${account.isActive ? 'Active' : 'Inactive'}</span></td>
+          <td>${new Date(account.createdAt).toLocaleDateString()}</td>
+          <td>
+            <a href="/admin/linktree/${account._id}/edit" class="btn" style="background: #007aff; margin-right: 8px; text-decoration: none; display: inline-block; padding: 8px 16px;">Edit</a>
+            <button onclick="deleteLinkTreeAccount('${account._id}', '${(account.accountName || 'Unknown').replace(/'/g, "\\'")}')" class="btn" style="background: #dc3545;">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Tree - Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #f5f5f7;
+            color: #1d1d1f;
+            padding: 40px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { margin-bottom: 40px; }
+        .header h1 { font-size: 36px; font-weight: 600; color: #1d1d1f; margin-bottom: 8px; }
+        .header p { font-size: 18px; color: #86868b; }
+        .back-link { display: inline-block; margin-bottom: 24px; color: #007aff; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .btn { background: #007aff; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; font-weight: 500; cursor: pointer; transition: background-color 0.2s; }
+        .btn:hover { background: #0056b3; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); }
+        th, td { padding: 16px; text-align: left; border-bottom: 1px solid #e5e5e7; }
+        th { background: #f5f5f7; font-weight: 600; color: #1d1d1f; }
+        .status { display: inline-block; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 500; }
+        .status.active { background: #d1f2eb; color: #00a86b; }
+        .status.inactive { background: #f8d7da; color: #dc3545; }
+        .form-section { background: white; border: 1px solid #e5e5e7; border-radius: 12px; padding: 32px; margin-bottom: 40px; max-width: 600px; }
+        .form-group { margin-bottom: 24px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #1d1d1f; font-size: 14px; }
+        .form-group input, .form-group textarea { width: 100%; padding: 12px 16px; border: 1px solid #e5e5e7; border-radius: 8px; font-size: 16px; }
+        .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #007aff; }
+        .btn-secondary { background: #86868b; margin-right: 12px; }
+        .message { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .message.success { background: #d1f2eb; color: #00a86b; }
+        .message.error { background: #f8d7da; color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/admin/dashboard" class="back-link">← Back to Dashboard</a>
+        <div class="header">
+            <h1>Link Tree</h1>
+            <p>Manage link tree accounts</p>
+        </div>
+        
+        <div style="margin-bottom: 24px;">
+            <button class="btn" onclick="showCreateForm()">➕ Create New Account</button>
+        </div>
+        
+        <!-- Create/Edit Form (hidden by default) -->
+        <div id="linkTreeFormContainer" style="display: none; margin-bottom: 40px;">
+            <div class="form-section">
+                <h2 id="linkTreeFormTitle" style="font-size: 24px; font-weight: 600; color: #1d1d1f; margin-bottom: 24px;">Create Link Tree Account</h2>
+                <div id="linkTreeFormMessage"></div>
+                <form id="linkTreeForm">
+                    <input type="hidden" id="linkTreeId" name="linkTreeId">
+                    
+                    <div class="form-group">
+                        <label for="accountName">Account Name *</label>
+                        <input type="text" id="accountName" name="accountName" required maxlength="100" placeholder="Enter account name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="linkTreeEmail">Email *</label>
+                        <input type="email" id="linkTreeEmail" name="email" required placeholder="Enter email address">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="linkTreePassword">Password *</label>
+                        <input type="password" id="linkTreePassword" name="password" required minlength="6" placeholder="Enter password (min 6 characters)">
+                        <small style="color: #86868b; display: block; margin-top: 4px;">Password must be at least 6 characters long</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="linkTreeLTN">LTN (Link Tree Number)</label>
+                        <input type="number" id="linkTreeLTN" name="LTN" min="1" placeholder="Enter LTN (e.g., 1, 2, 3...)">
+                        <small style="color: #86868b; display: block; margin-top: 4px;">Unique number used to access this link tree at /linktree?LTN=X</small>
+                    </div>
+                    
+                    
+                    <div style="display: flex; gap: 12px; margin-top: 24px;">
+                        <button type="submit" class="btn" id="linkTreeSubmitBtn">Create Account</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideLinkTreeForm()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        ${accounts.length > 0 ? `
+        <table>
+            <thead>
+                <tr>
+                    <th>Account Name</th>
+                    <th>Email</th>
+                    <th>LTN</th>
+                    <th>Banner</th>
+                    <th>Status</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${accountsHTML}
+            </tbody>
+        </table>
+        ` : `
+        <div style="text-align: center; padding: 60px 20px; color: #86868b;">
+            <div style="font-size: 48px; margin-bottom: 16px;">🔗</div>
+            <h3>No link tree accounts yet</h3>
+            <p>Create your first link tree account to get started</p>
+        </div>
+        `}
+    </div>
+    
+    <script>
+        function showCreateForm() {
+            document.getElementById('linkTreeFormContainer').style.display = 'block';
+            document.getElementById('linkTreeForm').reset();
+            document.getElementById('linkTreeFormContainer').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function hideLinkTreeForm() {
+            document.getElementById('linkTreeFormContainer').style.display = 'none';
+            document.getElementById('linkTreeForm').reset();
+        }
+        
+        // Handle form submission (create only)
+        document.getElementById('linkTreeForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const password = document.getElementById('linkTreePassword').value;
+            const messageDiv = document.getElementById('linkTreeFormMessage');
+            const submitBtn = document.getElementById('linkTreeSubmitBtn');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+            
+            try {
+                const formData = {
+                    accountName: document.getElementById('accountName').value,
+                    email: document.getElementById('linkTreeEmail').value,
+                    password: password
+                };
+                
+                const ltnValue = document.getElementById('linkTreeLTN').value;
+                if (ltnValue) {
+                    formData.LTN = parseInt(ltnValue);
+                }
+                
+                const response = await fetch('/admin/api/linktree', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.innerHTML = '<div class="message success">Account created successfully!</div>';
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1500);
+                } else {
+                    let errorMessage = result.message || 'Unknown error';
+                    if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+                        errorMessage = result.errors.map(err => err.msg || err.message || err).join(', ');
+                    }
+                    messageDiv.innerHTML = '<div class="message error"><strong>Error:</strong> ' + errorMessage + '</div>';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Create Account';
+                }
+            } catch (error) {
+                messageDiv.innerHTML = '<div class="message error">Error: ' + error.message + '</div>';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+            }
+        });
+        
+        async function deleteLinkTreeAccount(accountId, accountName) {
+            if (confirm('Are you sure you want to delete "' + accountName + '"? This action cannot be undone.')) {
+                try {
+                    const response = await fetch('/admin/api/linktree/' + accountId, { method: 'DELETE' });
+                    if (response.ok) {
+                        alert('Account deleted successfully!');
+                        location.reload();
+                    } else {
+                        const result = await response.json();
+                        alert('Error: ' + (result.message || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Error: ' + error.message);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+    `);
+  } catch (error) {
+    console.error('Error loading linktree page:', error);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(500).send('<h1>Error loading page</h1>');
+  }
+});
+
+// Link Tree Edit Page
+router.get('/linktree/:id/edit', async (req, res) => {
+  try {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    
+    const account = await LinkTree.findById(req.params.id);
+    if (!account) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Not Found - Link Tree</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 50px; text-align: center; }
+            .error { color: #dc3545; background: #f8d7da; padding: 20px; border-radius: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>Account Not Found</h1>
+            <p>The link tree account you're looking for doesn't exist.</p>
+            <a href="/admin/linktree" style="color: #007aff; text-decoration: none;">← Back to Link Tree</a>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    
+    const bannerUrl = account.bannerImage && account.bannerImage.url ? account.bannerImage.url : '';
+    const hasBanner = bannerUrl && bannerUrl.trim() !== '' && (bannerUrl.startsWith('http://') || bannerUrl.startsWith('https://') || bannerUrl.startsWith('data:'));
+    
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Link Tree - Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #f5f5f7;
+            color: #1d1d1f;
+            padding: 40px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .back-link { display: inline-block; margin-bottom: 24px; color: #007aff; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .header { margin-bottom: 40px; }
+        .header h1 { font-size: 36px; font-weight: 600; color: #1d1d1f; margin-bottom: 8px; }
+        .header p { font-size: 18px; color: #86868b; }
+        .form-section { background: white; border: 1px solid #e5e5e7; border-radius: 12px; padding: 32px; }
+        .form-group { margin-bottom: 24px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #1d1d1f; font-size: 14px; }
+        .form-group input, .form-group textarea { width: 100%; padding: 12px 16px; border: 1px solid #e5e5e7; border-radius: 8px; font-size: 16px; }
+        .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #007aff; }
+        .btn { background: #007aff; color: white; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; font-weight: 500; cursor: pointer; transition: background-color 0.2s; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #86868b; margin-right: 12px; }
+        .message { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .message.success { background: #d1f2eb; color: #00a86b; }
+        .message.error { background: #f8d7da; color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/admin/linktree" class="back-link">← Back to Link Tree</a>
+        <div class="header">
+            <h1>Edit Link Tree Account</h1>
+            <p>Update account details and settings</p>
+        </div>
+        
+        <div class="form-section">
+            <div id="linkTreeFormMessage"></div>
+            <form id="linkTreeForm">
+                <input type="hidden" id="linkTreeId" name="linkTreeId" value="${account._id}">
+                
+                <div class="form-group">
+                    <label for="accountName">Account Name *</label>
+                    <input type="text" id="accountName" name="accountName" required maxlength="100" value="${(account.accountName || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" placeholder="Enter account name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="linkTreeEmail">Email *</label>
+                    <input type="email" id="linkTreeEmail" name="email" required value="${(account.email || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" placeholder="Enter email address">
+                </div>
+                
+                <div class="form-group">
+                    <label for="linkTreePassword">Password</label>
+                    <input type="password" id="linkTreePassword" name="password" minlength="6" placeholder="Leave blank to keep current password">
+                    <small style="color: #86868b; display: block; margin-top: 4px;">Leave blank to keep current password. Enter new password (min 6 characters) to change it.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="linkTreeLTN">LTN (Link Tree Number)</label>
+                    <input type="number" id="linkTreeLTN" name="LTN" min="1" value="${account.LTN || ''}" placeholder="Enter LTN (e.g., 1, 2, 3...)">
+                    <small style="color: #86868b; display: block; margin-top: 4px;">Unique number used to access this link tree at /linktree?LTN=X</small>
+                </div>
+                
+                <!-- Banner Image Section -->
+                <div id="bannerImageSection">
+                    <div class="form-group">
+                        <label>Banner Image</label>
+                        <input type="file" id="bannerImageInput" name="bannerImage" accept="image/jpeg,image/jpg,image/png,image/webp">
+                        <small style="color: #86868b; display: block; margin-top: 4px;">Supported formats: JPEG, PNG, WebP. Max size: 5MB</small>
+                        
+                        <!-- Current Banner Preview -->
+                        <div id="currentBannerPreview" style="margin-top: 16px; ${hasBanner ? 'display: block;' : 'display: none;'}">
+                            <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">Current Banner:</p>
+                            <div style="position: relative; display: inline-block; border: 1px solid #e5e5e7; border-radius: 8px; overflow: hidden; max-width: 100%;">
+                                <img id="currentBannerImage" src="${hasBanner ? bannerUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;') : ''}" alt="Current banner" style="max-width: 100%; max-height: 300px; display: block;" crossorigin="anonymous" onerror="console.error('Failed to load banner image:', this.src); this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27 width=%27400%27 height=%27200%27%3E%3Crect fill=%27%23f5f5f7%27 width=%27400%27 height=%27200%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2386868b%27 font-family=%27system-ui%27 font-size=%2714%27%3EImage not available%3C/text%3E%3C/svg%3E';">
+                            </div>
+                            <button type="button" onclick="deleteBannerImage()" class="btn" style="background: #dc3545; margin-top: 8px; font-size: 14px; padding: 8px 16px;">🗑️ Delete Banner</button>
+                        </div>
+                        
+                        <!-- New Banner Preview -->
+                        <div id="newBannerPreview" style="margin-top: 16px; display: none;">
+                            <p style="font-size: 14px; color: #1d1d1f; margin-bottom: 8px; font-weight: 500;">New Banner Preview:</p>
+                            <div style="position: relative; display: inline-block; border: 1px solid #e5e5e7; border-radius: 8px; overflow: hidden; max-width: 100%;">
+                                <img id="newBannerImagePreview" src="" alt="New banner preview" style="max-width: 100%; max-height: 300px; display: block;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="hideBannerCheckbox" name="isBannerHidden" style="width: auto; cursor: pointer;" ${account.isBannerHidden ? 'checked' : ''}>
+                            <span>Hide Banner Image</span>
+                        </label>
+                        <small style="color: #86868b; display: block; margin-top: 4px;">When checked, the banner image will be hidden from display</small>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button type="submit" class="btn" id="linkTreeSubmitBtn">Update Account</button>
+                    <a href="/admin/linktree" class="btn btn-secondary" style="text-decoration: none; display: inline-block;">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Preview new banner image
+        document.getElementById('bannerImageInput')?.addEventListener('change', function(e) {
+            const file = this.files[0];
+            const preview = document.getElementById('newBannerPreview');
+            const previewImg = document.getElementById('newBannerImagePreview');
+            
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                preview.style.display = 'none';
+            }
+        });
+        
+        // Delete banner image
+        async function deleteBannerImage() {
+            const linkTreeId = document.getElementById('linkTreeId').value;
+            if (!linkTreeId) {
+                alert('No account selected');
+                return;
+            }
+            
+            if (confirm('Are you sure you want to delete the banner image? This action cannot be undone.')) {
+                try {
+                    const response = await fetch('/admin/api/linktree/' + linkTreeId + '/banner', {
+                        method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                        document.getElementById('currentBannerPreview').style.display = 'none';
+                        document.getElementById('currentBannerImage').src = '';
+                        alert('Banner image deleted successfully!');
+                    } else {
+                        const result = await response.json();
+                        alert('Error deleting banner: ' + (result.message || 'Unknown error'));
+                    }
+                } catch (error) {
+                    alert('Error deleting banner: ' + error.message);
+                }
+            }
+        }
+        
+        // Handle form submission
+        document.getElementById('linkTreeForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const linkTreeId = document.getElementById('linkTreeId').value;
+            const password = document.getElementById('linkTreePassword').value;
+            const bannerFile = document.getElementById('bannerImageInput').files[0];
+            const isBannerHidden = document.getElementById('hideBannerCheckbox').checked;
+            
+            const messageDiv = document.getElementById('linkTreeFormMessage');
+            const submitBtn = document.getElementById('linkTreeSubmitBtn');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+            
+            try {
+                const url = '/admin/api/linktree/' + linkTreeId;
+                const method = 'PUT';
+                
+                // Use FormData if there's a file upload, otherwise use JSON
+                let requestBody;
+                let headers = {};
+                
+                const ltnValue = document.getElementById('linkTreeLTN').value;
+                
+                if (bannerFile) {
+                    // Use FormData for file uploads
+                    const formData = new FormData();
+                    formData.append('accountName', document.getElementById('accountName').value);
+                    formData.append('email', document.getElementById('linkTreeEmail').value);
+                    
+                    // Only include password if it's provided
+                    if (password) {
+                        formData.append('password', password);
+                    }
+                    
+                    // Add LTN if provided
+                    if (ltnValue) {
+                        formData.append('LTN', ltnValue);
+                    }
+                    
+                    // Add banner file
+                    formData.append('bannerImage', bannerFile);
+                    
+                    // Add banner hide status
+                    formData.append('isBannerHidden', isBannerHidden ? 'true' : 'false');
+                    
+                    requestBody = formData;
+                } else {
+                    // Use JSON for non-file updates
+                    const formData = {
+                        accountName: document.getElementById('accountName').value,
+                        email: document.getElementById('linkTreeEmail').value
+                    };
+                    
+                    // Only include password if it's provided
+                    if (password) {
+                        formData.password = password;
+                    }
+                    
+                    // Add LTN if provided
+                    if (ltnValue) {
+                        formData.LTN = parseInt(ltnValue);
+                    }
+                    
+                    // Add banner hide status
+                    formData.isBannerHidden = isBannerHidden;
+                    
+                    requestBody = JSON.stringify(formData);
+                    headers['Content-Type'] = 'application/json';
+                }
+                
+                const response = await fetch(url, {
+                    method: method,
+                    headers: headers,
+                    body: requestBody
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    messageDiv.innerHTML = '<div class="message success">Account updated successfully!</div>';
+                    setTimeout(() => {
+                        window.location.href = '/admin/linktree';
+                    }, 1500);
+                } else {
+                    let errorMessage = result.message || 'Unknown error';
+                    if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+                        errorMessage = result.errors.map(err => err.msg || err.message || err).join(', ');
+                    }
+                    messageDiv.innerHTML = '<div class="message error"><strong>Error:</strong> ' + errorMessage + '</div>';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Update Account';
+                }
+            } catch (error) {
+                messageDiv.innerHTML = '<div class="message error">Error: ' + error.message + '</div>';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Update Account';
+            }
+        });
+    </script>
+</body>
+</html>
+    `);
+  } catch (error) {
+    console.error('Error loading linktree edit page:', error);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(500).send('<h1>Error loading page</h1>');
+  }
+});
+
+// Link Tree API Routes
+router.get('/api/linktree', async (req, res) => {
+  try {
+    const accounts = await LinkTree.find().sort({ createdAt: -1 });
+    res.json({
+      status: 'success',
+      data: {
+        accounts
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching link tree accounts:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch link tree accounts',
+      error: error.message
+    });
+  }
+});
+
+// Get single link tree account
+router.get('/api/linktree/:id', async (req, res) => {
+  try {
+    const account = await LinkTree.findById(req.params.id);
+    if (!account) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Link tree account not found'
+      });
+    }
+    res.json({
+      status: 'success',
+      data: {
+        account
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching link tree account:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch link tree account',
+      error: error.message
+    });
+  }
+});
+
+// Create link tree account
+router.post('/api/linktree', async (req, res) => {
+  try {
+    const { accountName, email, password, LTN } = req.body;
+    
+    // Validate required fields
+    if (!accountName || !email || !password) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Account name, email, and password are required'
+      });
+    }
+    
+    // Check if email already exists
+    const existingAccount = await LinkTree.findOne({ email: email.toLowerCase() });
+    if (existingAccount) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'An account with this email already exists'
+      });
+    }
+    
+    // Check if LTN already exists (if provided)
+    if (LTN) {
+      const existingLTN = await LinkTree.findOne({ LTN: parseInt(LTN) });
+      if (existingLTN) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'An account with this LTN already exists'
+        });
+      }
+    }
+    
+    const newAccount = new LinkTree({
+      accountName,
+      email: email.toLowerCase(),
+      password,
+      LTN: LTN ? parseInt(LTN) : undefined
+    });
+    
+    await newAccount.save();
+    
+    res.status(201).json({
+      status: 'success',
+      message: 'Link tree account created successfully',
+      data: {
+        account: newAccount
+      }
+    });
+  } catch (error) {
+    console.error('Error creating link tree account:', error);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => ({
+        msg: err.message,
+        field: err.path
+      }));
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation error',
+        errors
+      });
+    }
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'An account with this email already exists'
+      });
+    }
+    
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to create link tree account',
+      error: error.message
+    });
+  }
+});
+
+// Update link tree account
+router.put('/api/linktree/:id', uploadBannerImage, processAndUploadBannerImage, handleUploadError, async (req, res) => {
+  try {
+    const account = await LinkTree.findById(req.params.id);
+    
+    if (!account) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Link tree account not found'
+      });
+    }
+    
+    // Get data from form or JSON body
+    const accountName = req.body.accountName;
+    const email = req.body.email;
+    const password = req.body.password;
+    const LTN = req.body.LTN;
+    const isBannerHidden = req.body.isBannerHidden === 'true' || req.body.isBannerHidden === true;
+    
+    // Update fields if provided
+    if (accountName) account.accountName = accountName;
+    if (email) {
+      // Check if new email already exists (excluding current account)
+      const existingAccount = await LinkTree.findOne({ 
+        email: email.toLowerCase(),
+        _id: { $ne: req.params.id }
+      });
+      if (existingAccount) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'An account with this email already exists'
+        });
+      }
+      account.email = email.toLowerCase();
+    }
+    if (password) {
+      account.password = password; // Will be hashed by pre-save hook
+    }
+    if (LTN !== undefined && LTN !== null && LTN !== '') {
+      const ltnValue = parseInt(LTN);
+      // Check if LTN already exists (excluding current account)
+      const existingLTN = await LinkTree.findOne({ 
+        LTN: ltnValue,
+        _id: { $ne: req.params.id }
+      });
+      if (existingLTN) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'An account with this LTN already exists'
+        });
+      }
+      account.LTN = ltnValue;
+    } else if (LTN === '' || LTN === null) {
+      // Allow clearing LTN by setting it to undefined
+      account.LTN = undefined;
+    }
+    
+    // Handle banner image upload
+    if (req.body.bannerImage) {
+      // Delete old banner image from S3 if it exists
+      if (account.bannerImage && account.bannerImage.key) {
+        try {
+          await deleteFromS3(account.bannerImage.key);
+          console.log('Deleted old banner image from S3:', account.bannerImage.key);
+        } catch (deleteError) {
+          console.error('Error deleting old banner image from S3:', deleteError);
+          // Continue even if deletion fails
+        }
+      }
+      
+      // Set new banner image
+      account.bannerImage = req.body.bannerImage;
+    }
+    
+    // Update banner hide status
+    if (req.body.isBannerHidden !== undefined) {
+      account.isBannerHidden = isBannerHidden;
+    }
+    
+    await account.save();
+    
+    res.json({
+      status: 'success',
+      message: 'Link tree account updated successfully',
+      data: {
+        account
+      }
+    });
+  } catch (error) {
+    console.error('Error updating link tree account:', error);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => ({
+        msg: err.message,
+        field: err.path
+      }));
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation error',
+        errors
+      });
+    }
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'An account with this email already exists'
+      });
+    }
+    
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update link tree account',
+      error: error.message
+    });
+  }
+});
+
+// Delete banner image
+router.delete('/api/linktree/:id/banner', async (req, res) => {
+  try {
+    const account = await LinkTree.findById(req.params.id);
+    
+    if (!account) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Link tree account not found'
+      });
+    }
+    
+    // Delete banner image from S3 if it exists
+    if (account.bannerImage && account.bannerImage.key) {
+      try {
+        await deleteFromS3(account.bannerImage.key);
+        console.log('Deleted banner image from S3:', account.bannerImage.key);
+      } catch (deleteError) {
+        console.error('Error deleting banner image from S3:', deleteError);
+        // Continue even if deletion fails
+      }
+    }
+    
+    // Remove banner image from account
+    account.bannerImage = undefined;
+    await account.save();
+    
+    res.json({
+      status: 'success',
+      message: 'Banner image deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting banner image:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete banner image',
+      error: error.message
+    });
+  }
+});
+
+// Delete link tree account
+router.delete('/api/linktree/:id', async (req, res) => {
+  try {
+    const account = await LinkTree.findById(req.params.id);
+    
+    if (!account) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Link tree account not found'
+      });
+    }
+    
+    // Delete banner image from S3 if it exists
+    if (account.bannerImage && account.bannerImage.key) {
+      try {
+        await deleteFromS3(account.bannerImage.key);
+        console.log('Deleted banner image from S3:', account.bannerImage.key);
+      } catch (deleteError) {
+        console.error('Error deleting banner image from S3:', deleteError);
+        // Continue even if deletion fails
+      }
+    }
+    
+    // Delete the account
+    await LinkTree.findByIdAndDelete(req.params.id);
+    
+    res.json({
+      status: 'success',
+      message: 'Link tree account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting link tree account:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete link tree account',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;

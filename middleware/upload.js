@@ -511,15 +511,122 @@ const processAndUploadExploreMedia = async (req, res, next) => {
   }
 };
 
+// Process and upload banner image for LinkTree
+const processAndUploadBannerImage = async (req, res, next) => {
+  try {
+    const bannerFile = req.file;
+    
+    if (!bannerFile) {
+      return next(); // No banner file uploaded, continue to next middleware
+    }
+
+    // Get account ID from params (should be available in PUT route)
+    const accountId = req.params.id;
+    
+    if (!accountId) {
+      // For create route, we might not have an ID yet, so skip banner upload
+      return next();
+    }
+
+    // Check if S3 is configured
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.S3_BUCKET_NAME) {
+      console.warn('S3 not configured, storing file info without upload');
+      req.body.bannerImage = {
+        url: null,
+        key: null,
+        originalName: bannerFile.originalname,
+        size: bannerFile.size,
+        uploadedAt: new Date(),
+        note: 'S3 not configured - file not uploaded to cloud storage'
+      };
+      return next();
+    }
+
+    try {
+      // Generate unique filename
+      const fileName = generateFileName(bannerFile.originalname, `linktree_${accountId}_${Date.now()}`);
+      
+      // Process image with Sharp - resize to banner dimensions (1200x400 recommended for banners)
+      const processedImage = await sharp(bannerFile.buffer)
+        .resize(1200, 400, {
+          fit: 'cover',
+          withoutEnlargement: true
+        })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      // Upload to S3
+      const uploadPath = 'linktree-banners/';
+      const uploadParams = {
+        Bucket: s3Config.bucketName,
+        Key: `${uploadPath}${fileName}`,
+        Body: processedImage,
+        ContentType: 'image/jpeg',
+        CacheControl: 'max-age=31536000',
+        Metadata: {
+          'uploaded-by': 'linktree-api',
+          'upload-date': new Date().toISOString()
+        }
+      };
+
+      const result = await s3.upload(uploadParams).promise();
+      
+      // Use the Location from S3 response, or construct CDN URL if CDN_URL is set
+      const imageUrl = process.env.CDN_URL ? getCdnUrl(result.Key) : result.Location;
+      
+      console.log('Uploaded banner image:', {
+        key: result.Key,
+        url: imageUrl,
+        location: result.Location
+      });
+      
+      // Store banner image info in req.body for the route handler
+      req.body.bannerImage = {
+        url: imageUrl,
+        key: result.Key,
+        originalName: bannerFile.originalname,
+        size: processedImage.length,
+        uploadedAt: new Date()
+      };
+      
+      // Store old banner key for deletion
+      if (req.body.oldBannerKey) {
+        req.body.oldBannerKey = req.body.oldBannerKey;
+      }
+
+      next();
+    } catch (error) {
+      console.error('Banner image processing error:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to process banner image',
+        error: error.message
+      });
+    }
+  } catch (error) {
+    console.error('Banner image upload error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to upload banner image',
+      error: error.message
+    });
+  }
+};
+
+// Single file upload middleware for banner images
+const uploadBannerImage = upload.single('bannerImage');
+
 module.exports = {
   uploadSingle,
   uploadMultiple,
   uploadExploreMedia,
   uploadCombined,
   uploadProfileImage,
+  uploadBannerImage,
   processAndUploadImage,
   processAndUploadCoverImages,
   processAndUploadProfileImage,
   processAndUploadExploreMedia,
+  processAndUploadBannerImage,
   handleUploadError
 };
