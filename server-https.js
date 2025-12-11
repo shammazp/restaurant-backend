@@ -25,24 +25,9 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 // Serve static files from public directory
 app.use(express.static('public'));
 
-// Ensure admin.js is accessible (only in development/localhost)
+// Ensure admin.js is accessible
 app.get('/admin.js', (req, res) => {
-  // Restrict to development or localhost only
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const isLocalhost = req.hostname === 'localhost' || 
-                      req.hostname === '127.0.0.1' || 
-                      req.ip === '127.0.0.1' || 
-                      req.ip === '::1' ||
-                      req.ip === '::ffff:127.0.0.1';
-  
-  if (isDevelopment || isLocalhost) {
-    res.sendFile(__dirname + '/public/admin.js');
-  } else {
-    res.status(404).json({
-      status: 'error',
-      message: 'Admin resources are not available in production.'
-    });
-  }
+  res.sendFile(__dirname + '/public/admin.js');
 });
 
 // Connect to database
