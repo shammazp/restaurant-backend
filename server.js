@@ -444,12 +444,18 @@ app.use('/api/explore', exploreRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  // Check if HTTPS is being used (either directly or through load balancer)
+  const isHttps = req.secure || 
+                  req.header('x-forwarded-proto') === 'https' ||
+                  (req.header('x-forwarded-proto') && req.header('x-forwarded-proto').includes('https')) ||
+                  req.protocol === 'https';
+  
   res.status(200).json({
     status: 'success',
     message: 'Restaurant API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    https: req.secure || req.header('x-forwarded-proto') === 'https'
+    https: isHttps
   });
 });
 
