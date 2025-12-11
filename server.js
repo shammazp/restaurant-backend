@@ -35,10 +35,24 @@ connectDB();
 // Middleware
 if (process.env.NODE_ENV === 'production') {
   // Production security middleware
+  // Note: If behind a load balancer/proxy that handles HTTPS, disable this redirect
+  // and let the load balancer handle HTTPS termination
   app.use((req, res, next) => {
-    // Force HTTPS redirect in production
-    if (req.header('x-forwarded-proto') !== 'https') {
-      res.redirect(`https://${req.header('host')}${req.url}`);
+    // Check if request is already secure or coming through HTTPS proxy/load balancer
+    const isSecure = req.secure || 
+                     req.header('x-forwarded-proto') === 'https' ||
+                     (req.header('x-forwarded-proto') && req.header('x-forwarded-proto').includes('https'));
+    
+    // Only redirect direct HTTP requests (not behind proxy)
+    // If x-forwarded-for exists, we're behind a proxy - trust it handles HTTPS
+    if (!isSecure && req.method === 'GET' && !req.header('x-forwarded-for')) {
+      const host = req.header('host');
+      // Don't redirect if host is EC2 hostname (means we're behind load balancer)
+      if (host && !host.includes('compute.amazonaws.com') && !host.includes('ec2-')) {
+        res.redirect(`https://${host}${req.url}`);
+      } else {
+        next(); // Skip redirect - likely behind load balancer
+      }
     } else {
       next();
     }
