@@ -4,7 +4,7 @@ const router = express.Router();
 // Dashboard route - shows card-based navigation
 router.get('/dashboard', async (req, res) => {
   try {
-    // Set content type to HTML
+    // Set content type to HTML c
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     
   res.send(`
