@@ -83,7 +83,7 @@ if (process.env.NODE_ENV === 'production') {
 
   // Production CORS
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'https://codecastle.store',
+    origin: process.env.CORS_ORIGIN || 'https://kochi.one',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']

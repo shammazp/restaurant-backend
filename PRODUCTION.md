@@ -1,83 +1,95 @@
-# Production Optimization
+# Production Setup
 
-Your API is already running at `https://codecastle.store` but it's in development mode. Here's how to optimize it for production.
+Your API is running in production mode. Here's how to manage it.
+
+## Change Domain to kochi.one
+
+### Step 1: Update DNS
+
+Point `kochi.one` to your server/load balancer:
+
+**If using AWS ALB (Load Balancer):**
+1. Go to Route 53 (or your DNS provider)
+2. Create/Update A record:
+   - Name: `@` (or `api` for api.kochi.one)
+   - Type: A - Alias
+   - Alias Target: Your ALB DNS name
+   - TTL: 300
+
+**If using direct EC2:**
+1. Create A record pointing to your EC2 IP address
+
+### Step 2: Update SSL Certificate
+
+**If using AWS ALB:**
+1. Go to AWS Certificate Manager
+2. Request new certificate (or add domain to existing)
+3. Add `kochi.one` and `*.kochi.one`
+4. Validate via DNS
+5. Update ALB listener to use new certificate
+
+**If using Nginx with Let's Encrypt:**
+```bash
+sudo certbot --nginx -d kochi.one
+```
+
+### Step 3: Update Environment Variables
+
+On your server, update `.env` file:
+
+```env
+CORS_ORIGIN=https://kochi.one
+```
+
+Or if you have multiple domains:
+```env
+CORS_ORIGIN=https://kochi.one,https://www.kochi.one
+```
+
+### Step 4: Restart Application
+
+```bash
+pm2 restart restaurant-api
+# or
+sudo systemctl restart restaurant-api
+```
+
+### Step 5: Test
+
+```bash
+curl https://kochi.one/api/health
+```
 
 ## Current Status
 
 Your API shows:
+- ✅ Environment: `production`
 - ✅ Running publicly
-- ⚠️ Environment: `development` (should be `production`)
-- ⚠️ HTTPS: `false` (should be `true`)
 
-## Quick Fixes
+## Useful Commands
 
-### 1. Enable Production Mode
-
-On your server, update your `.env` file:
-
-```env
-NODE_ENV=production
-```
-
-**Important:** The code has been updated to handle load balancers correctly. If you're behind a load balancer (like AWS ALB), the HTTPS redirect will be skipped automatically.
-
-Then restart:
 ```bash
-# Pull latest code
-git pull origin main
+# Check status
+pm2 status
+
+# View logs
+pm2 logs restaurant-api
 
 # Restart
 pm2 restart restaurant-api
-# or if using systemd
-sudo systemctl restart restaurant-api
+
+# Update code
+git pull origin main
+npm ci --production
+pm2 restart restaurant-api
 ```
 
-### 2. Enable HTTPS (If Not Already)
+## Important Notes
 
-If your API is accessible via `https://codecastle.store`, HTTPS is already working (probably through a reverse proxy or load balancer).
-
-If you need to set it up:
-
-```bash
-# Install Certbot
-sudo apt install certbot python3-certbot-nginx -y
-
-# Get SSL certificate
-sudo certbot --nginx -d codecastle.store
-```
-
-### 3. Update CORS (If Needed)
-
-Make sure CORS is set to your production domain:
-
-```env
-CORS_ORIGIN=https://codecastle.store
-```
-
-### 4. Verify Production Mode
-
-After restarting, check:
-```bash
-curl https://codecastle.store/api/health
-```
-
-Should show:
-```json
-{
-  "status": "success",
-  "message": "Restaurant API is running",
-  "environment": "production",  // ← Should say "production"
-  "https": true                  // ← Should be true
-}
-```
-
-## That's It!
-
-Your API is already deployed. Just:
-1. Set `NODE_ENV=production` in your `.env`
-2. Restart the server
-3. Verify it's working
+- Never commit `.env` file to git
+- Always use HTTPS in production
+- Monitor logs: `pm2 logs restaurant-api`
 
 ---
 
-**Note:** If you're already using HTTPS and just need to switch to production mode, that's all you need to do!
+**Your API is live! 🚀**
