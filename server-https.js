@@ -22,6 +22,12 @@ const app = express();
 const PORT = process.env.PORT || 80;
 const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 
+// Trust proxy - needed when behind load balancer/proxy (AWS ALB, CloudFront, etc.)
+// This allows Express to correctly identify the client IP
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', true);
+}
+
 // Serve static files from public directory
 app.use(express.static('public'));
 
