@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const Restaurant = require('../models/Restaurant');
 const ExplorePost = require('../models/ExplorePost');
+const localhostOnly = require('../middleware/localhostOnly');
+
+// Apply localhost restriction to all admin routes
+// This ensures admin dashboard is only accessible when running locally
+router.use(localhostOnly);
 
 // Dashboard route access
 router.get('/dashboard', async (req, res) => {
